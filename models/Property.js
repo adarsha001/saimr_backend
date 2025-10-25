@@ -17,6 +17,12 @@ const propertySchema = new mongoose.Schema(
       latitude: Number, 
       longitude: Number 
     },
+  price: {
+  type: mongoose.Schema.Types.Mixed,
+  required: true,
+}
+
+     ,
     mapUrl: { type: String }, // new field for map link
     category: {
       type: String,
@@ -41,7 +47,7 @@ const propertySchema = new mongoose.Schema(
       bathrooms: Number,
       floors: Number,
       square: Number,
-      price: Number,
+     
       propertyLabel: String,
       leaseDuration: String,
       typeOfJV: String,
@@ -92,8 +98,7 @@ const propertySchema = new mongoose.Schema(
       BusStop: { type: Number },
       Pharmacy: { type: Number },
       Metro: { type: Number },
-    },
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    }
   },
   { timestamps: true }
 );

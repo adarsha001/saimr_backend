@@ -1,5 +1,6 @@
 const Property = require("../models/Property");
-
+const upload = require("../middlewares/multer");
+const cloudinary = require("../config/cloudinary");
 // Create new property
 const createProperty = async (req, res) => {
   try {
@@ -7,7 +8,7 @@ const createProperty = async (req, res) => {
       title,
       description,
       content,
-      images,
+      price,
       city,
       propertyLocation,
       coordinates,
@@ -20,38 +21,58 @@ const createProperty = async (req, res) => {
       distanceKey,
       features,
       nearby,
+     
     } = req.body;
 
-    // Validate required fields
-    if (!title || !city || !propertyLocation || !category) {
-      return res.status(400).json({ message: "Missing required fields" });
+    // Upload images to Cloudinary
+    const uploadedImages = [];
+    for (let file of req.files) {
+      const result = await cloudinary.uploader.upload(file.path, {
+        folder: "properties",
+      });
+      uploadedImages.push({
+        url: result.secure_url,
+        public_id: result.public_id,
+      });
     }
+
+    // Parse nested objects
+    const parsedAttributes = attributes ? JSON.parse(attributes) : {};
+    const parsedNearby = nearby ? JSON.parse(nearby) : {};
+    const parsedCoordinates = coordinates ? JSON.parse(coordinates) : {};
+    const parsedDistanceKey = distanceKey ? JSON.parse(distanceKey) : [];
+    const parsedFeatures = features ? JSON.parse(features) : [];
 
     const newProperty = new Property({
       title,
       description,
       content,
-      images,
+      price,
+      images: uploadedImages,
       city,
       propertyLocation,
-      coordinates,
+      coordinates: parsedCoordinates,
       mapUrl,
       category,
-      isFeatured: isFeatured || false,
-      forSale: forSale !== undefined ? forSale : true,
-      isVerified: isVerified || false,
-      attributes,
-      distanceKey,
-      features,
-      nearby,
-      // createdBy: req.user?._id, // optional auth
+      isFeatured,
+      forSale,
+      isVerified,
+      attributes: parsedAttributes,
+      distanceKey: parsedDistanceKey,
+      features: parsedFeatures,
+      nearby: parsedNearby,
+   
     });
 
-    const savedProperty = await newProperty.save();
-    res.status(201).json(savedProperty);
+    await newProperty.save();
+    res.status(201).json({
+      success: true,
+      message: "Property added successfully!",
+      property: newProperty,
+    });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Server Error", error });
+    res.status(500).json({ success: false, message: "Error adding property", error });
   }
 };
 

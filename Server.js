@@ -19,7 +19,7 @@ app.use(express.json({ limit: "10mb" }));
 
 // Routes
 app.use("/api/properties", propertyRoutes);
-
+app.use('/api/auth', require('./routes/auth'));
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
