@@ -11,7 +11,7 @@ const app = express();
 // Middleware
 // ✅ Enable CORS
 app.use(cors({
-  origin: "http://localhost:5173", // your React app's origin
+  origin: "https://saimr-frontend.vercel.app/", // your React app's origin
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true
 }));
