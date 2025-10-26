@@ -1,20 +1,16 @@
 const express = require("express");
-const { createProperty, getProperties, getPropertyById } = require("../controllers/propertyController");
+const { createProperty, getProperties, getPropertyById, getPropertiesByUser } = require("../controllers/propertyController");
+const { protect } = require("../middleware/authMiddleware"); // Import auth middleware
 const upload = require("../middlewares/multer");
-const cloudinary = require("../config/cloudinary");
 const router = express.Router();
 
-
-// ✅ Add new property
-
-
-// Add new property
-router.post("/", upload.array("images", 10), createProperty);
-
-// Get all properties
+// Public routes - no authentication required
 router.get("/", getProperties);
-
-// Get single property
 router.get("/:id", getPropertyById);
+
+// Protected routes - require authentication
+router.use(protect); // This applies to all routes below
+router.post("/", upload.array("images", 10), createProperty);
+router.get('/my-properties', getPropertiesByUser);
 
 module.exports = router;

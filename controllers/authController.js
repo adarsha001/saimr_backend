@@ -1,22 +1,20 @@
-const express = require('express');
 const User = require('../models/User');
-const { protect } = require('../middleware/auth');
-const router = express.Router();
 
-// Register User
-router.post('/register', async (req, res) => {
+// Register user
+const register = async (req, res) => {
   try {
     const { username, name, lastName, userType, phoneNumber, gmail, password } = req.body;
+console.log(req.body);
 
     // Check if user already exists
     const existingUser = await User.findOne({
-      $or: [{ email: gmail }, { username }]
+      $or: [{ gmail }, { username }]
     });
 
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: 'User with this email or username already exists'
+        message: 'User already exists with this email or username'
       });
     }
 
@@ -44,25 +42,27 @@ router.post('/register', async (req, res) => {
         name: user.name,
         lastName: user.lastName,
         userType: user.userType,
-        isAdmin: user.isAdmin,
         phoneNumber: user.phoneNumber,
-        gmail: user.gmail
+        gmail: user.gmail,
+        isAdmin: user.isAdmin
       }
     });
   } catch (error) {
+    console.error(error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Error in registration',
+      error: error.message
     });
   }
-});
+};
 
-// Login User
-router.post('/login', async (req, res) => {
+// Login user
+const login = async (req, res) => {
   try {
     const { emailOrUsername, password } = req.body;
 
-    // Check if email/username and password provided
+    // Validate email/username and password
     if (!emailOrUsername || !password) {
       return res.status(400).json({
         success: false,
@@ -70,7 +70,7 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Find user by email or username and include password
+    // Find user by email or username
     const user = await User.findOne({
       $or: [
         { gmail: emailOrUsername },
@@ -86,9 +86,9 @@ router.post('/login', async (req, res) => {
     }
 
     // Check password
-    const isPasswordMatch = await user.comparePassword(password);
+    const isMatch = await user.comparePassword(password);
 
-    if (!isPasswordMatch) {
+    if (!isMatch) {
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
@@ -98,7 +98,7 @@ router.post('/login', async (req, res) => {
     // Generate token
     const token = user.getSignedJwtToken();
 
-    res.json({
+    res.status(200).json({
       success: true,
       message: 'Login successful',
       token,
@@ -108,77 +108,22 @@ router.post('/login', async (req, res) => {
         name: user.name,
         lastName: user.lastName,
         userType: user.userType,
-        isAdmin: user.isAdmin,
-        phoneNumber: user.phoneNumber,
-        gmail: user.gmail
-      }
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-// Get Current User
-router.get('/me', protect, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id);
-
-    res.json({
-      success: true,
-      user: {
-        id: user._id,
-        username: user.username,
-        name: user.name,
-        lastName: user.lastName,
-        userType: user.userType,
-        isAdmin: user.isAdmin,
         phoneNumber: user.phoneNumber,
         gmail: user.gmail,
-        createdAt: user.createdAt
+        isAdmin: user.isAdmin
       }
     });
   } catch (error) {
+    console.error(error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: 'Error in login',
+      error: error.message
     });
   }
-});
+};
 
-// Update User Profile
-router.put('/profile', protect, async (req, res) => {
-  try {
-    const { name, lastName, phoneNumber } = req.body;
-    
-    const user = await User.findByIdAndUpdate(
-      req.user.id,
-      { name, lastName, phoneNumber },
-      { new: true, runValidators: true }
-    );
-
-    res.json({
-      success: true,
-      message: 'Profile updated successfully',
-      user: {
-        id: user._id,
-        username: user.username,
-        name: user.name,
-        lastName: user.lastName,
-        userType: user.userType,
-        isAdmin: user.isAdmin,
-        phoneNumber: user.phoneNumber,
-        gmail: user.gmail
-      }
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-module.exports = router;
+module.exports = {
+  register,
+  login
+};

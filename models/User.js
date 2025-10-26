@@ -55,7 +55,36 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Password is required'],
     minlength: [6, 'Password must be at least 6 characters long'],
     select: false
-  }
+  },
+  // Array of properties liked by the user
+  likedProperties: [{
+    property: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Property',
+      required: true
+    },
+    likedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  // Array of properties posted by the user
+  postedProperties: [{
+    property: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Property',
+      required: true
+    },
+    postedAt: {
+      type: Date,
+      default: Date.now
+    },
+    status: {
+      type: String,
+      enum: ['active', 'sold', 'rented', 'expired', 'draft'],
+      default: 'active'
+    }
+  }]
 }, {
   timestamps: true
 });
@@ -84,6 +113,56 @@ userSchema.methods.getSignedJwtToken = function() {
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRE }
   );
+};
+
+// Method to add a property to liked properties
+userSchema.methods.addToLikedProperties = function(propertyId) {
+  const alreadyLiked = this.likedProperties.some(
+    item => item.property.toString() === propertyId.toString()
+  );
+  
+  if (!alreadyLiked) {
+    this.likedProperties.push({ property: propertyId });
+    return this.save();
+  }
+  return Promise.resolve(this);
+};
+
+// Method to remove a property from liked properties
+userSchema.methods.removeFromLikedProperties = function(propertyId) {
+  this.likedProperties = this.likedProperties.filter(
+    item => item.property.toString() !== propertyId.toString()
+  );
+  return this.save();
+};
+
+// Method to add a property to posted properties
+userSchema.methods.addToPostedProperties = function(propertyId, status = 'active') {
+  const alreadyPosted = this.postedProperties.some(
+    item => item.property.toString() === propertyId.toString()
+  );
+  
+  if (!alreadyPosted) {
+    this.postedProperties.push({ 
+      property: propertyId, 
+      status: status 
+    });
+    return this.save();
+  }
+  return Promise.resolve(this);
+};
+
+// Method to update status of a posted property
+userSchema.methods.updatePostedPropertyStatus = function(propertyId, newStatus) {
+  const postedProperty = this.postedProperties.find(
+    item => item.property.toString() === propertyId.toString()
+  );
+  
+  if (postedProperty) {
+    postedProperty.status = newStatus;
+    return this.save();
+  }
+  return Promise.resolve(this);
 };
 
 module.exports = mongoose.model('User', userSchema);

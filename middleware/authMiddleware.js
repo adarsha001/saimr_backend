@@ -19,6 +19,14 @@ const protect = async (req, res, next) => {
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       req.user = await User.findById(decoded.id);
+      
+      if (!req.user) {
+        return res.status(401).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+      
       next();
     } catch (error) {
       return res.status(401).json({
@@ -34,16 +42,16 @@ const protect = async (req, res, next) => {
   }
 };
 
-// Admin middleware
-const admin = (req, res, next) => {
-  if (req.user && req.user.isAdmin) {
+const authorize = (...roles) => {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.userType) && !req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: `User role ${req.user.userType} is not authorized to access this route`
+      });
+    }
     next();
-  } else {
-    res.status(403).json({
-      success: false,
-      message: 'Not authorized as admin'
-    });
-  }
+  };
 };
 
-module.exports = { protect, admin };
+module.exports = { protect, authorize };

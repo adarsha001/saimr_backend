@@ -17,13 +17,11 @@ const propertySchema = new mongoose.Schema(
       latitude: Number, 
       longitude: Number 
     },
-  price: {
-  type: mongoose.Schema.Types.Mixed,
-  required: true,
-}
-
-     ,
-    mapUrl: { type: String }, // new field for map link
+    price: {
+      type: mongoose.Schema.Types.Mixed,
+      required: true,
+    },
+    mapUrl: { type: String },
     category: {
       type: String,
       enum: [
@@ -42,12 +40,17 @@ const propertySchema = new mongoose.Schema(
     isFeatured: { type: Boolean, default: false },
     forSale: { type: Boolean, default: true },
     isVerified: { type: Boolean, default: false },
+    // Add createdBy field to track the user who created the property
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true
+    },
     attributes: {
       bedrooms: Number,
       bathrooms: Number,
       floors: Number,
       square: Number,
-     
       propertyLabel: String,
       leaseDuration: String,
       typeOfJV: String,
