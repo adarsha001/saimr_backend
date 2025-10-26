@@ -1,5 +1,5 @@
-const User = require('../models/User');
-const Property = require('../models/Property');
+const User = require('../models/user');
+const Property = require('../models/property');
 
 // Like a property
 const likeProperty = async (req, res) => {

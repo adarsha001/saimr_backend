@@ -1,4 +1,4 @@
-const Property = require("../models/Property");
+const Property = require("../models/property");
 const upload = require("../middlewares/multer");
 const cloudinary = require("../config/cloudinary");
 
