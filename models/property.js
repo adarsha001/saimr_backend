@@ -5,103 +5,101 @@ const propertySchema = new mongoose.Schema(
     title: { type: String, required: true, trim: true },
     description: { type: String, trim: true },
     content: { type: String, trim: true },
+
     images: [
       {
         url: { type: String, required: true },
         public_id: { type: String },
       },
     ],
+
     city: { type: String, required: true },
     propertyLocation: { type: String, required: true },
-    coordinates: { 
-      latitude: Number, 
-      longitude: Number 
-    },
+    coordinates: { latitude: Number, longitude: Number },
+
     price: {
       type: mongoose.Schema.Types.Mixed,
       required: true,
     },
+
     mapUrl: { type: String },
+
+    // 🏗️ Property Category (non-residential only)
     category: {
       type: String,
-      enum: [
-        "Flat",
-        "Villa",
-        "House",
-        "Lease",
-        "Outrade",
-        "Commercial",
-        "Plots",
-        "Farmland",
-        "JD/JV",
-      ],
+      enum: ["Outright", "Commercial", "Farmland", "JD/JV"],
       required: true,
     },
+
     isFeatured: { type: Boolean, default: false },
     forSale: { type: Boolean, default: true },
     isVerified: { type: Boolean, default: false },
-    // Add createdBy field to track the user who created the property
+
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true
+      required: true,
     },
+
+    // 🧱 Key attributes
     attributes: {
-      bedrooms: Number,
-      bathrooms: Number,
-      floors: Number,
       square: Number,
       propertyLabel: String,
-      leaseDuration: String,
-      typeOfJV: String,
-      expectedROI: Number,
-      garden: Boolean,
-      irrigationAvailable: Boolean,
-      balcony: Boolean,
+      leaseDuration: String, // optional for future lease expansion
+      typeOfJV: String, // JD/JV only
+      expectedROI: Number, // JD/JV or Commercial
+      irrigationAvailable: Boolean, // Farmland only
+      facing: String,
+      roadWidth: Number,
+      waterSource: String,
+      soilType: String, // Farmland
+      legalClearance: Boolean, // Outright/JD/JV
     },
+
     distanceKey: [{ type: String }],
+
+    // 🌾 Features (focused and relevant)
     features: [
       {
         type: String,
         enum: [
-          "Wifi",
+          // 🏬 Commercial
+          "Conference Room",
+          "CCTV Surveillance",
+          "Power Backup",
+          "Fire Safety",
+          "Cafeteria",
+          "Reception Area",
           "Parking",
-          "Swimming pool",
-          "Balcony",
-          "Garden",
-          "Security",
-          "Fitness center",
-          "Children's Play Area",
-          "Indore Games",
-          "Laundry Room",
-          "Pets Allow",
-          "Spa & Massage",
-          "Electricity",
-          "Gated Community",
-          "Street Lamp",
-          "Drainage",
-          "Tennis Court",
           "Lift(s)",
-          "Golf Course",
-          "Jogging Track",
-          "Club House",
-          "Senior Citizen Siteout",
-          "Squash Court",
-          "Yoga / Meditation Area",
-          "Jacuzzi",
-          "Mini Theatre",
+
+          // 🌾 Farmland
+          "Borewell",
+          "Fencing",
+          "Electricity Connection",
+          "Water Source",
+          "Drip Irrigation",
+          "Storage Shed",
+
+          // 🏗️ Outright / JD/JV
+          "Highway Access",
+          "Legal Assistance",
+          "Joint Development Approved",
+          "Investor Friendly",
+          "Gated Boundary",
         ],
       },
     ],
+
+    // 📍 Nearby (mainly for Commercial & Outright)
     nearby: {
-      Hospital: { type: Number },
-      SuperMarket: { type: Number },
-      School: { type: Number },
+      Highway: { type: Number },
       Airport: { type: Number },
       BusStop: { type: Number },
-      Pharmacy: { type: Number },
       Metro: { type: Number },
-    }
+      CityCenter: { type: Number },
+      IndustrialArea: { type: Number },
+    },
   },
   { timestamps: true }
 );
