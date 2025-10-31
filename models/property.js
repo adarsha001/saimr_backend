@@ -35,6 +35,10 @@ const propertySchema = new mongoose.Schema(
       type: String,
       enum: ["pending", "approved", "rejected"],
       default: "pending"
+    },    displayOrder: {
+      type: Number,
+      default: 0,
+      min: 0
     },
 
     forSale: { type: Boolean, default: true },

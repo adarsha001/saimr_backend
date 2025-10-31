@@ -220,8 +220,8 @@ const getProperties = async (req, res) => {
       isVerified,
       page = 1,
       limit = 10,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortBy = 'displayOrder', // Changed from 'createdAt' to 'displayOrder'
+      sortOrder = 'asc' // Changed from 'desc' to 'asc' for display order
     } = req.query;
 
     // Build filter object - only show approved properties
@@ -270,7 +270,6 @@ const getProperties = async (req, res) => {
     });
   }
 };
-
 // Get ALL properties (including pending) - FOR ADMIN USE ONLY
 
 // Get single property by ID - only show if approved (unless admin)

@@ -10,9 +10,9 @@ const app = express();
 
 // Middleware
 // ✅ Enable CORS
-const allowedOrigins = [
-  "https://saimr-frontend.vercel.app",
-  "http://localhost:5173"
+const allowedOrigins = [ "http://localhost:5173",
+  "https://saimr-frontend.vercel.app"
+ 
 ];
 
 app.use(cors({
