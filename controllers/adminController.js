@@ -817,3 +817,612 @@ exports.getUserById = async (req, res) => {
     });
   }
 };
+
+// ✅ Update property details (Admin only)
+exports.updateProperty = async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log('🔄 Admin updating property:', id);
+
+    // Validate ID format
+    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid property ID format" 
+      });
+    }
+
+    // Find the property first
+    const existingProperty = await Property.findById(id);
+    if (!existingProperty) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Property not found" 
+      });
+    }
+
+    // Define allowed fields that admin can update
+    const allowedUpdates = {
+      basic: [
+        'title', 'description', 'content', 'city', 'propertyLocation', 
+        'coordinates', 'price', 'mapUrl', 'category', 'displayOrder',
+        'forSale', 'isFeatured', 'isVerified', 'approvalStatus', 'rejectionReason'
+      ],
+      attributes: [
+        'square', 'propertyLabel', 'leaseDuration', 'typeOfJV', 'expectedROI',
+        'irrigationAvailable', 'facing', 'roadWidth', 'waterSource', 'soilType',
+        'legalClearance'
+      ],
+      arrays: ['features', 'distanceKey'],
+      objects: ['nearby', 'images']
+    };
+
+    // Build update object
+    const updateData = {};
+    
+    // Update basic fields
+    allowedUpdates.basic.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+
+    // Update attributes
+    if (req.body.attributes) {
+      updateData.attributes = { ...existingProperty.attributes._doc };
+      allowedUpdates.attributes.forEach(field => {
+        if (req.body.attributes[field] !== undefined) {
+          updateData.attributes[field] = req.body.attributes[field];
+        }
+      });
+    }
+
+    // Update arrays
+    allowedUpdates.arrays.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+
+    // Update nearby distances
+    if (req.body.nearby) {
+      updateData.nearby = { ...existingProperty.nearby._doc };
+      Object.keys(req.body.nearby).forEach(key => {
+        if (req.body.nearby[key] !== undefined) {
+          updateData.nearby[key] = req.body.nearby[key];
+        }
+      });
+    }
+
+    // Update images (with validation)
+    if (req.body.images) {
+      if (!Array.isArray(req.body.images)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Images must be an array'
+        });
+      }
+      
+      // Validate each image has required fields
+      const invalidImages = req.body.images.filter(img => !img.url);
+      if (invalidImages.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'All images must have a URL'
+        });
+      }
+      
+      updateData.images = req.body.images;
+    }
+
+    // Validate category-specific fields
+    if (updateData.category) {
+      const validationError = validateCategorySpecificFields(updateData, existingProperty);
+      if (validationError) {
+        return res.status(400).json({
+          success: false,
+          message: validationError
+        });
+      }
+    }
+
+    console.log('📝 Update data:', JSON.stringify(updateData, null, 2));
+
+    // Update the property
+    const updatedProperty = await Property.findByIdAndUpdate(
+      id,
+      { $set: updateData },
+      { 
+        new: true, 
+        runValidators: true 
+      }
+    ).populate('createdBy', 'name username gmail phoneNumber');
+
+    console.log('✅ Property updated successfully');
+
+    res.status(200).json({
+      success: true,
+      message: 'Property updated successfully',
+      property: updatedProperty
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating property:', error);
+    
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map(val => val.message);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors: errors
+      });
+    }
+    
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid property ID'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Error updating property',
+      error: error.message
+    });
+  }
+};
+
+// ✅ Partial update for specific fields (Admin only)
+exports.patchProperty = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    console.log('🔧 Patching property:', id, 'with updates:', updates);
+
+    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid property ID format" 
+      });
+    }
+
+    // Remove restricted fields
+    const restrictedFields = ['_id', 'createdBy', 'createdAt'];
+    restrictedFields.forEach(field => delete updates[field]);
+
+    // If updating approvalStatus to rejected, require rejectionReason
+    if (updates.approvalStatus === 'rejected' && !updates.rejectionReason) {
+      updates.rejectionReason = "No reason provided";
+    }
+
+    // If updating approvalStatus to approved, clear rejectionReason
+    if (updates.approvalStatus === 'approved') {
+      updates.rejectionReason = "";
+      updates.isVerified = true;
+    }
+
+    const property = await Property.findByIdAndUpdate(
+      id,
+      { $set: updates },
+      { 
+        new: true, 
+        runValidators: true 
+      }
+    ).populate('createdBy', 'name username gmail phoneNumber');
+
+    if (!property) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Property not found" 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Property updated successfully',
+      property
+    });
+
+  } catch (error) {
+    console.error('❌ Error patching property:', error);
+    
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map(val => val.message);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors: errors
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Error updating property',
+      error: error.message
+    });
+  }
+};
+
+// Helper function to validate category-specific fields
+function validateCategorySpecificFields(updateData, existingProperty) {
+  const category = updateData.category || existingProperty.category;
+  
+  switch (category) {
+    case 'JD/JV':
+      if (updateData.attributes && !updateData.attributes.typeOfJV) {
+        return 'JD/JV properties require typeOfJV field';
+      }
+      break;
+      
+    case 'Farmland':
+      if (updateData.attributes && updateData.attributes.irrigationAvailable === undefined) {
+        return 'Farmland properties require irrigationAvailable field';
+      }
+      break;
+      
+    case 'Commercial':
+      if (updateData.attributes && !updateData.attributes.expectedROI) {
+        return 'Commercial properties require expectedROI field';
+      }
+      break;
+      
+    case 'Outright':
+      if (updateData.attributes && updateData.attributes.legalClearance === undefined) {
+        return 'Outright properties require legalClearance field';
+      }
+      break;
+  }
+  
+  return null;
+}
+const Click = require('../models/Click');
+const ClickLog = require('../models/ClickLog');
+
+// Get comprehensive click analytics
+exports.getClickAnalytics = async (req, res) => {
+  try {
+    const { timeframe = '7d', itemType, page = 1, limit = 50 } = req.query;
+    
+    // Calculate date range based on timeframe
+    const dateRange = calculateDateRange(timeframe);
+    let dateFilter = {};
+    
+    if (dateRange.startDate) {
+      dateFilter.lastClicked = { $gte: dateRange.startDate };
+    }
+
+    // Build query
+    let query = { ...dateFilter };
+    if (itemType) query.itemType = itemType;
+
+    // Get click statistics with pagination
+    const skip = (page - 1) * limit;
+    const clicks = await Click.find(query)
+      .sort({ clickCount: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    // Get total count for pagination
+    const totalClicks = await Click.countDocuments(query);
+
+    // Get summary statistics
+    const totalSummary = await Click.aggregate([
+      { $match: query },
+      { 
+        $group: {
+          _id: null,
+          totalClicks: { $sum: '$clickCount' },
+          uniqueItems: { $sum: 1 },
+          avgClicksPerItem: { $avg: '$clickCount' }
+        }
+      }
+    ]);
+
+    // Get clicks by type
+    const clicksByType = await Click.aggregate([
+      { $match: query },
+      {
+        $group: {
+          _id: '$itemType',
+          totalClicks: { $sum: '$clickCount' },
+          itemsCount: { $sum: 1 }
+        }
+      },
+      { $sort: { totalClicks: -1 } }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        clicks,
+        summary: totalSummary[0] || { totalClicks: 0, uniqueItems: 0, avgClicksPerItem: 0 },
+        clicksByType,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalClicks / limit),
+          totalItems: totalClicks,
+          itemsPerPage: parseInt(limit)
+        },
+        timeframe: {
+          value: timeframe,
+          ...dateRange
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching click analytics:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching click analytics',
+      error: error.message
+    });
+  }
+};
+
+// Get click statistics grouped by type
+exports.getClickStatsByType = async (req, res) => {
+  try {
+    const { timeframe = '30d' } = req.query;
+    const dateRange = calculateDateRange(timeframe);
+    
+    let matchStage = {};
+    if (dateRange.startDate) {
+      matchStage.lastClicked = { $gte: dateRange.startDate };
+    }
+
+    const stats = await Click.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: '$itemType',
+          totalClicks: { $sum: '$clickCount' },
+          uniqueItems: { $sum: 1 },
+          mostClicked: { $max: '$clickCount' },
+          leastClicked: { $min: '$clickCount' },
+          avgClicks: { $avg: '$clickCount' }
+        }
+      },
+      {
+        $project: {
+          itemType: '$_id',
+          totalClicks: 1,
+          uniqueItems: 1,
+          mostClicked: 1,
+          leastClicked: 1,
+          avgClicks: { $round: ['$avgClicks', 2] }
+        }
+      },
+      { $sort: { totalClicks: -1 } }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        stats,
+        timeframe: {
+          value: timeframe,
+          ...dateRange
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching click stats by type:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching click statistics by type',
+      error: error.message
+    });
+  }
+};
+
+// Get most popular clicks
+exports.getPopularClicks = async (req, res) => {
+  try {
+    const { limit = 10, timeframe = '30d', itemType } = req.query;
+    const dateRange = calculateDateRange(timeframe);
+    
+    let query = {};
+    if (dateRange.startDate) {
+      query.lastClicked = { $gte: dateRange.startDate };
+    }
+    if (itemType) {
+      query.itemType = itemType;
+    }
+
+    const popularClicks = await Click.find(query)
+      .sort({ clickCount: -1 })
+      .limit(parseInt(limit))
+      .select('itemType itemValue clickCount firstClicked lastClicked displayName');
+
+    res.status(200).json({
+      success: true,
+      data: {
+        popularClicks,
+        timeframe: {
+          value: timeframe,
+          ...dateRange
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching popular clicks:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching popular clicks',
+      error: error.message
+    });
+  }
+};
+
+// Export click data as CSV/JSON
+exports.exportClickData = async (req, res) => {
+  try {
+    const { format = 'json', timeframe = 'all', itemType } = req.query;
+    const dateRange = calculateDateRange(timeframe);
+    
+    let query = {};
+    if (dateRange.startDate) {
+      query.lastClicked = { $gte: dateRange.startDate };
+    }
+    if (itemType) {
+      query.itemType = itemType;
+    }
+
+    const clicks = await Click.find(query)
+      .sort({ clickCount: -1 })
+      .select('itemType itemValue clickCount firstClicked lastClicked displayName');
+
+    if (format === 'csv') {
+      // Convert to CSV
+      const csvData = convertToCSV(clicks);
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=click-analytics-${new Date().toISOString().split('T')[0]}.csv`);
+      return res.send(csvData);
+    }
+
+    // Default JSON response
+    res.status(200).json({
+      success: true,
+      data: clicks,
+      exportInfo: {
+        format,
+        timeframe,
+        exportedAt: new Date().toISOString(),
+        totalRecords: clicks.length
+      }
+    });
+
+  } catch (error) {
+    console.error('Error exporting click data:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error exporting click data',
+      error: error.message
+    });
+  }
+};
+
+// Get click trends over time
+exports.getClickTrends = async (req, res) => {
+  try {
+    const { timeframe = '30d', groupBy = 'day' } = req.query;
+    const dateRange = calculateDateRange(timeframe);
+    
+    const trends = await ClickLog.aggregate([
+      {
+        $match: {
+          timestamp: { 
+            $gte: dateRange.startDate || new Date('2020-01-01'),
+            $lte: dateRange.endDate || new Date() 
+          }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            date: {
+              $dateToString: { 
+                format: groupBy === 'day' ? '%Y-%m-%d' : '%Y-%m', 
+                date: '$timestamp' 
+              }
+            },
+            itemType: '$itemType'
+          },
+          clicks: { $sum: 1 }
+        }
+      },
+      {
+        $group: {
+          _id: '$_id.date',
+          clicksByType: {
+            $push: {
+              itemType: '$_id.itemType',
+              clicks: '$clicks'
+            }
+          },
+          totalClicks: { $sum: '$clicks' }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        trends,
+        timeframe: {
+          value: timeframe,
+          ...dateRange
+        },
+        groupBy
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching click trends:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching click trends',
+      error: error.message
+    });
+  }
+};
+
+// Helper function to calculate date ranges
+exports.calculateDateRange = (timeframe) => {
+  const now = new Date();
+  let startDate = null;
+  let endDate = now;
+
+  switch (timeframe) {
+    case '24h':
+      startDate = new Date(now.setDate(now.getDate() - 1));
+      break;
+    case '7d':
+      startDate = new Date(now.setDate(now.getDate() - 7));
+      break;
+    case '30d':
+      startDate = new Date(now.setDate(now.getDate() - 30));
+      break;
+    case '90d':
+      startDate = new Date(now.setDate(now.getDate() - 90));
+      break;
+    case '1y':
+      startDate = new Date(now.setFullYear(now.getFullYear() - 1));
+      break;
+    case 'all':
+    default:
+      startDate = null;
+  }
+
+  return { startDate, endDate };
+};
+
+// Helper function to convert data to CSV
+exports.convertToCSV = (data) => {
+  if (!data.length) return '';
+  
+  const headers = Object.keys(data[0]._doc).filter(key => 
+    !['_id', '__v'].includes(key)
+  );
+  
+  const csvHeaders = headers.join(',');
+  const csvRows = data.map(item => {
+    return headers.map(header => {
+      const value = item[header];
+      if (value instanceof Date) {
+        return value.toISOString();
+      }
+      return `"${String(value || '').replace(/"/g, '""')}"`;
+    }).join(',');
+  });
+  
+  return [csvHeaders, ...csvRows].join('\n');
+};
+
