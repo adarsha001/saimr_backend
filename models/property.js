@@ -30,11 +30,19 @@ const propertySchema = new mongoose.Schema(
       enum: ["Outright", "Commercial", "Farmland", "JD/JV"],
       required: true,
     },
+    
+    approvalStatus: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending"
+    },
 
-    isFeatured: { type: Boolean, default: false },
     forSale: { type: Boolean, default: true },
+    isFeatured: { type: Boolean, default: false },
     isVerified: { type: Boolean, default: false },
-
+    
+    rejectionReason: { type: String, default: "" },
+   
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

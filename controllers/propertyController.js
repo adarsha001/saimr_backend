@@ -25,6 +25,7 @@ const createProperty = async (req, res) => {
       coordinates,
       mapUrl,
       category,
+      approvalStatus, // ADD THIS LINE - receive approvalStatus from frontend
       isFeatured,
       forSale,
       isVerified,
@@ -48,6 +49,14 @@ const createProperty = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: `Invalid category. Must be one of: ${validCategories.join(', ')}`
+      });
+    }
+
+    // Validate approvalStatus if provided
+    if (approvalStatus && !["pending", "approved", "rejected"].includes(approvalStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid approval status'
       });
     }
 
@@ -84,6 +93,7 @@ const createProperty = async (req, res) => {
     let parsedCoordinates = {};
     let parsedDistanceKey = [];
     let parsedFeatures = [];
+    let parsedApprovalStatus = approvalStatus; // Default to what frontend sends
 
     try {
       parsedAttributes = attributes ? JSON.parse(attributes) : {};
@@ -91,6 +101,11 @@ const createProperty = async (req, res) => {
       parsedCoordinates = coordinates ? JSON.parse(coordinates) : {};
       parsedDistanceKey = distanceKey ? JSON.parse(distanceKey) : [];
       parsedFeatures = features ? JSON.parse(features) : [];
+      
+      // Parse approvalStatus if it's sent as string
+      if (approvalStatus && typeof approvalStatus === 'string') {
+        parsedApprovalStatus = approvalStatus;
+      }
     } catch (parseError) {
       console.error('JSON parse error:', parseError);
       return res.status(400).json({
@@ -146,6 +161,7 @@ const createProperty = async (req, res) => {
       }
     }
 
+    // Create new property with dynamic approvalStatus
     const newProperty = new Property({
       title,
       description,
@@ -157,13 +173,14 @@ const createProperty = async (req, res) => {
       coordinates: parsedCoordinates,
       mapUrl,
       category,
+      approvalStatus: parsedApprovalStatus || "pending", // Use frontend value or default to "pending"
       isFeatured: isFeatured === 'true' || isFeatured === true,
       forSale: forSale === 'true' || forSale === true,
       isVerified: isVerified === 'true' || isVerified === true,
       createdBy: req.user._id,
       attributes: parsedAttributes,
       distanceKey: parsedDistanceKey,
-      features: filteredFeatures, // Use filtered features
+      features: filteredFeatures,
       nearby: parsedNearby,
     });
 
@@ -172,9 +189,14 @@ const createProperty = async (req, res) => {
     // Populate with correct field names
     await newProperty.populate('createdBy', 'name username gmail phoneNumber');
 
+    // Dynamic success message based on approval status
+    const successMessage = parsedApprovalStatus === "approved" 
+      ? "Property added successfully and approved! It is now live on the platform."
+      : "Property added successfully! It will be visible after admin approval.";
+
     res.status(201).json({
       success: true,
-      message: "Property added successfully!",
+      message: successMessage,
       property: newProperty,
     });
   } catch (error) {
@@ -186,8 +208,6 @@ const createProperty = async (req, res) => {
     });
   }
 };
-
-// Get all properties with filtering and pagination
 const getProperties = async (req, res) => {
   try {
     const {
@@ -204,8 +224,8 @@ const getProperties = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
-    // Build filter object
-    const filter = {};
+    // Build filter object - only show approved properties
+    const filter = { approvalStatus: 'approved' };
     
     if (category) filter.category = category;
     if (city) filter.city = { $regex: city, $options: 'i' };
@@ -213,11 +233,13 @@ const getProperties = async (req, res) => {
     if (isFeatured) filter.isFeatured = isFeatured === 'true';
     if (isVerified) filter.isVerified = isVerified === 'true';
     
-    // Price filter
+    // Price filter - handle numeric prices only
     if (minPrice || maxPrice) {
-      filter.price = {};
-      if (minPrice) filter.price.$gte = parseFloat(minPrice);
-      if (maxPrice) filter.price.$lte = parseFloat(maxPrice);
+      filter.price = { 
+        $not: { $eq: "Price on Request" }, // Exclude "Price on Request" from price range
+        ...(minPrice && { $gte: parseFloat(minPrice) }),
+        ...(maxPrice && { $lte: parseFloat(maxPrice) })
+      };
     }
 
     // Sort options
@@ -249,7 +271,9 @@ const getProperties = async (req, res) => {
   }
 };
 
-// Get single property by ID
+// Get ALL properties (including pending) - FOR ADMIN USE ONLY
+
+// Get single property by ID - only show if approved (unless admin)
 const getPropertyById = async (req, res) => {
   try {
     const property = await Property.findById(req.params.id)
@@ -259,6 +283,15 @@ const getPropertyById = async (req, res) => {
       return res.status(404).json({ 
         success: false,
         message: "Property not found" 
+      });
+    }
+
+    // Check if property is approved OR if user is admin
+    const isAdmin = req.user && req.user.role === 'admin';
+    if (property.approvalStatus !== 'approved' && !isAdmin) {
+      return res.status(403).json({ 
+        success: false,
+        message: "Property not available" 
       });
     }
 
@@ -276,7 +309,7 @@ const getPropertyById = async (req, res) => {
   }
 };
 
-// Get properties by user
+// Get properties by user - user can see their own properties regardless of status
 const getPropertiesByUser = async (req, res) => {
   try {
     if (!req.user || !req.user._id) {
@@ -286,15 +319,18 @@ const getPropertiesByUser = async (req, res) => {
       });
     }
 
-    const { page = 1, limit = 10 } = req.query;
+    const { page = 1, limit = 10, approvalStatus } = req.query;
 
-    const properties = await Property.find({ createdBy: req.user._id })
+    const filter = { createdBy: req.user._id };
+    if (approvalStatus) filter.approvalStatus = approvalStatus;
+
+    const properties = await Property.find(filter)
       .populate('createdBy', 'name username gmail phoneNumber')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
 
-    const total = await Property.countDocuments({ createdBy: req.user._id });
+    const total = await Property.countDocuments(filter);
 
     res.status(200).json({
       success: true,
@@ -313,7 +349,56 @@ const getPropertiesByUser = async (req, res) => {
   }
 };
 
-// Update property
+// Update property approval status (Admin only)
+const updatePropertyStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { approvalStatus, rejectionReason } = req.body;
+
+    if (!approvalStatus || !["approved", "rejected"].includes(approvalStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid approval status (approved/rejected) is required'
+      });
+    }
+
+    const updateData = { approvalStatus };
+    
+    if (approvalStatus === "rejected" && rejectionReason) {
+      updateData.rejectionReason = rejectionReason;
+    } else if (approvalStatus === "approved") {
+      updateData.rejectionReason = ""; // Clear rejection reason if approved
+    }
+
+    const property = await Property.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    ).populate('createdBy', 'name username gmail phoneNumber');
+
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Property ${approvalStatus} successfully`,
+      property
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating property status",
+      error: error.message
+    });
+  }
+};
+
+// Update property (Owner only)
 const updateProperty = async (req, res) => {
   try {
     const property = await Property.findById(req.params.id);
@@ -361,6 +446,10 @@ const updateProperty = async (req, res) => {
       updates.nearby = JSON.parse(updates.nearby);
     }
 
+    // Reset approval status to pending when property is updated
+    updates.approvalStatus = 'pending';
+    updates.rejectionReason = '';
+
     const updatedProperty = await Property.findByIdAndUpdate(
       req.params.id,
       updates,
@@ -369,7 +458,7 @@ const updateProperty = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "Property updated successfully",
+      message: "Property updated successfully. It will be reviewed again by admin.",
       property: updatedProperty
     });
   } catch (error) {
@@ -428,8 +517,10 @@ const deleteProperty = async (req, res) => {
 module.exports = { 
   createProperty, 
   getProperties, 
+
   getPropertyById, 
   getPropertiesByUser,
+  updatePropertyStatus,
   updateProperty,
   deleteProperty
 };
