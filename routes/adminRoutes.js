@@ -15,13 +15,18 @@ const {
   getPropertyStats,
   updateProperty,
   patchProperty,
-  // Click Analytics Routes
+  getHourlyDistribution,
+} = require('../controllers/adminController');
+const {
   getClickAnalytics,
   getClickStatsByType,
   getPopularClicks,
   exportClickData,
-  getClickTrends
-} = require('../controllers/adminController');
+  getClickTrends,
+  getRawClickData,
+  getUserSessions,
+  trackClick // Make sure this is imported
+} = require('../controllers/clickController');
 
 // Only admins can access these
 router.use(protect, authorize('admin')); 
@@ -43,11 +48,15 @@ router.patch('/properties/:id', patchProperty);
 router.get('/users', getAllUsersWithLikes);
 router.get('/users/:id', getUserById);
 
-// Click Analytics Routes
+// ✅ CORRECTED: Click Analytics Routes - Direct paths (no /analytics prefix)
 router.get('/analytics/clicks', getClickAnalytics);
 router.get('/analytics/clicks/by-type', getClickStatsByType);
 router.get('/analytics/clicks/popular', getPopularClicks);
-router.get('/analytics/clicks/export', exportClickData);
 router.get('/analytics/clicks/trends', getClickTrends);
-
+router.get('/analytics/clicks/raw', getRawClickData);
+router.get('/analytics/clicks/sessions', getUserSessions);
+router.get('/analytics/clicks/export', exportClickData);
+router.post('/analytics/track', trackClick); // Add track route
+// Add this route to your existing routes
+router.get('/analytics/clicks/hourly', getHourlyDistribution);;
 module.exports = router;

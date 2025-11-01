@@ -1,5 +1,7 @@
 const Property = require('../models/property');
 const User = require('../models/user'); 
+// In adminController.js - Add this import at the top
+const ClickAnalytics = require('../models/ClickAnalytics');
 // ✅ Get all pending properties for review
 exports.getPendingProperties = async (req, res) => {
   try {
@@ -1077,352 +1079,584 @@ function validateCategorySpecificFields(updateData, existingProperty) {
   
   return null;
 }
-const Click = require('../models/Click');
-const ClickLog = require('../models/ClickLog');
-
-// Get comprehensive click analytics
+// Click Analytics Functions
 exports.getClickAnalytics = async (req, res) => {
   try {
-    const { timeframe = '7d', itemType, page = 1, limit = 50 } = req.query;
+    const { timeframe = '7d', type, propertyId } = req.query;
     
-    // Calculate date range based on timeframe
+    // Calculate date range
     const dateRange = calculateDateRange(timeframe);
-    let dateFilter = {};
     
-    if (dateRange.startDate) {
-      dateFilter.lastClicked = { $gte: dateRange.startDate };
-    }
+    // Build match query
+    const matchQuery = {
+      timestamp: { $gte: dateRange.start, $lte: dateRange.end }
+    };
+    
+    if (type) matchQuery.itemType = type;
+    if (propertyId) matchQuery.propertyId = propertyId;
 
-    // Build query
-    let query = { ...dateFilter };
-    if (itemType) query.itemType = itemType;
-
-    // Get click statistics with pagination
-    const skip = (page - 1) * limit;
-    const clicks = await Click.find(query)
-      .sort({ clickCount: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    // Get total count for pagination
-    const totalClicks = await Click.countDocuments(query);
-
-    // Get summary statistics
-    const totalSummary = await Click.aggregate([
-      { $match: query },
-      { 
+    // Get summary stats
+    const summary = await ClickAnalytics.aggregate([
+      { $match: matchQuery },
+      {
         $group: {
           _id: null,
-          totalClicks: { $sum: '$clickCount' },
-          uniqueItems: { $sum: 1 },
-          avgClicksPerItem: { $avg: '$clickCount' }
+          totalClicks: { $sum: 1 },
+          uniqueItems: { $addToSet: '$itemValue' },
+          uniqueUsers: { $addToSet: '$userId' },
+          uniqueSessions: { $addToSet: '$sessionId' }
+        }
+      },
+      {
+        $project: {
+          totalClicks: 1,
+          uniqueItemsCount: { $size: '$uniqueItems' },
+          uniqueUsersCount: { $size: '$uniqueUsers' },
+          uniqueSessionsCount: { $size: '$uniqueSessions' },
+          avgClicksPerItem: { $divide: ['$totalClicks', { $size: '$uniqueItems' }] }
         }
       }
     ]);
 
     // Get clicks by type
-    const clicksByType = await Click.aggregate([
-      { $match: query },
+    const clicksByType = await ClickAnalytics.aggregate([
+      { $match: matchQuery },
       {
         $group: {
           _id: '$itemType',
-          totalClicks: { $sum: '$clickCount' },
-          itemsCount: { $sum: 1 }
-        }
-      },
-      { $sort: { totalClicks: -1 } }
-    ]);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        clicks,
-        summary: totalSummary[0] || { totalClicks: 0, uniqueItems: 0, avgClicksPerItem: 0 },
-        clicksByType,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(totalClicks / limit),
-          totalItems: totalClicks,
-          itemsPerPage: parseInt(limit)
-        },
-        timeframe: {
-          value: timeframe,
-          ...dateRange
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('Error fetching click analytics:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching click analytics',
-      error: error.message
-    });
-  }
-};
-
-// Get click statistics grouped by type
-exports.getClickStatsByType = async (req, res) => {
-  try {
-    const { timeframe = '30d' } = req.query;
-    const dateRange = calculateDateRange(timeframe);
-    
-    let matchStage = {};
-    if (dateRange.startDate) {
-      matchStage.lastClicked = { $gte: dateRange.startDate };
-    }
-
-    const stats = await Click.aggregate([
-      { $match: matchStage },
-      {
-        $group: {
-          _id: '$itemType',
-          totalClicks: { $sum: '$clickCount' },
-          uniqueItems: { $sum: 1 },
-          mostClicked: { $max: '$clickCount' },
-          leastClicked: { $min: '$clickCount' },
-          avgClicks: { $avg: '$clickCount' }
+          totalClicks: { $sum: 1 },
+          itemsCount: { $addToSet: '$itemValue' },
+          mostClicked: { 
+            $first: {
+              $arrayElemAt: [
+                {
+                  $slice: [
+                    {
+                      $getField: {
+                        field: 'v',
+                        input: {
+                          $max: {
+                            $map: {
+                              input: { $objectToArray: '$counts' },
+                              as: 'item',
+                              in: { k: '$$item.k', v: '$$item.v' }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    0
+                  ]
+                },
+                0
+              ]
+            }
+          }
         }
       },
       {
         $project: {
           itemType: '$_id',
           totalClicks: 1,
-          uniqueItems: 1,
-          mostClicked: 1,
-          leastClicked: 1,
-          avgClicks: { $round: ['$avgClicks', 2] }
+          itemsCount: { $size: '$itemsCount' },
+          mostClicked: '$mostClicked.k',
+          avgClicks: { $divide: ['$totalClicks', { $size: '$itemsCount' }] }
         }
       },
       { $sort: { totalClicks: -1 } }
     ]);
 
-    res.status(200).json({
+    // Get popular clicks
+exports.popularClicks = await ClickAnalytics.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: {
+            itemType: '$itemType',
+            itemValue: '$itemValue',
+            displayName: '$displayName'
+          },
+          clickCount: { $sum: 1 },
+          lastClicked: { $max: '$timestamp' }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          itemType: '$_id.itemType',
+          itemValue: '$_id.itemValue',
+          displayName: '$_id.displayName',
+          clickCount: 1,
+          lastClicked: 1
+        }
+      },
+      { $sort: { clickCount: -1 } },
+      { $limit: 20 }
+    ]);
+
+    // Get daily trends
+    const dailyTrends = await ClickAnalytics.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: {
+            $dateToString: {
+              format: '%Y-%m-%d',
+              date: '$timestamp'
+            }
+          },
+          clicks: { $sum: 1 },
+          uniqueUsers: { $addToSet: '$userId' }
+        }
+      },
+      {
+        $project: {
+          date: '$_id',
+          clicks: 1,
+          uniqueUsers: { $size: '$uniqueUsers' }
+        }
+      },
+      { $sort: { date: 1 } }
+    ]);
+
+    res.json({
       success: true,
       data: {
-        stats,
-        timeframe: {
-          value: timeframe,
-          ...dateRange
-        }
+        summary: summary[0] || {
+          totalClicks: 0,
+          uniqueItemsCount: 0,
+          uniqueUsersCount: 0,
+          uniqueSessionsCount: 0,
+          avgClicksPerItem: 0
+        },
+        clicksByType,
+        popularClicks,
+        dailyTrends,
+        timeframe,
+        dateRange
       }
     });
 
   } catch (error) {
-    console.error('Error fetching click stats by type:', error);
+    console.error('Get click analytics error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching click statistics by type',
-      error: error.message
+      message: 'Failed to fetch click analytics'
     });
   }
 };
 
-// Get most popular clicks
+exports.getClickStatsByType = async (req, res) => {
+  try {
+    const { timeframe = '30d' } = req.query;
+    const dateRange = calculateDateRange(timeframe);
+
+    const stats = await ClickAnalytics.aggregate([
+      { 
+        $match: { 
+          timestamp: { $gte: dateRange.start, $lte: dateRange.end } 
+        } 
+      },
+      {
+        $group: {
+          _id: '$itemType',
+          totalClicks: { $sum: 1 },
+          uniqueItems: { $addToSet: '$itemValue' },
+          topItems: {
+            $push: {
+              itemValue: '$itemValue',
+              displayName: '$displayName'
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          itemType: '$_id',
+          totalClicks: 1,
+          itemsCount: { $size: '$uniqueItems' },
+          topItems: {
+            $slice: [
+              {
+                $map: {
+                  input: '$topItems',
+                  as: 'item',
+                  in: {
+                    itemValue: '$$item.itemValue',
+                    displayName: '$$item.displayName',
+                    count: {
+                      $size: {
+                        $filter: {
+                          input: '$topItems',
+                          as: 'i',
+                          cond: { $eq: ['$$i.itemValue', '$$item.itemValue'] }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              0,
+              5
+            ]
+          },
+          avgClicksPerItem: { $divide: ['$totalClicks', { $size: '$uniqueItems' }] }
+        }
+      },
+      { $sort: { totalClicks: -1 } }
+    ]);
+
+    res.json({
+      success: true,
+      data: stats
+    });
+
+  } catch (error) {
+    console.error('Get click stats by type error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch click stats by type'
+    });
+  }
+};
+
 exports.getPopularClicks = async (req, res) => {
   try {
-    const { limit = 10, timeframe = '30d', itemType } = req.query;
+    const { timeframe = '7d', limit = 10 } = req.query;
     const dateRange = calculateDateRange(timeframe);
-    
-    let query = {};
-    if (dateRange.startDate) {
-      query.lastClicked = { $gte: dateRange.startDate };
-    }
-    if (itemType) {
-      query.itemType = itemType;
-    }
 
-    const popularClicks = await Click.find(query)
-      .sort({ clickCount: -1 })
-      .limit(parseInt(limit))
-      .select('itemType itemValue clickCount firstClicked lastClicked displayName');
-
-    res.status(200).json({
-      success: true,
-      data: {
-        popularClicks,
-        timeframe: {
-          value: timeframe,
-          ...dateRange
+    const popularClicks = await ClickAnalytics.aggregate([
+      { 
+        $match: { 
+          timestamp: { $gte: dateRange.start, $lte: dateRange.end } 
+        } 
+      },
+      {
+        $group: {
+          _id: {
+            itemType: '$itemType',
+            itemValue: '$itemValue',
+            displayName: '$displayName'
+          },
+          clickCount: { $sum: 1 },
+          uniqueUsers: { $addToSet: '$userId' },
+          lastClicked: { $max: '$timestamp' },
+          firstClicked: { $min: '$timestamp' }
         }
-      }
+      },
+      {
+        $project: {
+          itemType: '$_id.itemType',
+          itemValue: '$_id.itemValue',
+          displayName: '$_id.displayName',
+          clickCount: 1,
+          uniqueUsersCount: { $size: '$uniqueUsers' },
+          lastClicked: 1,
+          firstClicked: 1
+        }
+      },
+      { $sort: { clickCount: -1 } },
+      { $limit: parseInt(limit) }
+    ]);
+
+    res.json({
+      success: true,
+      data: popularClicks
     });
 
   } catch (error) {
-    console.error('Error fetching popular clicks:', error);
+    console.error('Get popular clicks error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching popular clicks',
-      error: error.message
+      message: 'Failed to fetch popular clicks'
     });
   }
 };
 
-// Export click data as CSV/JSON
 exports.exportClickData = async (req, res) => {
   try {
-    const { format = 'json', timeframe = 'all', itemType } = req.query;
+    const { timeframe = '30d', format = 'json' } = req.query;
     const dateRange = calculateDateRange(timeframe);
-    
-    let query = {};
-    if (dateRange.startDate) {
-      query.lastClicked = { $gte: dateRange.startDate };
-    }
-    if (itemType) {
-      query.itemType = itemType;
-    }
 
-    const clicks = await Click.find(query)
-      .sort({ clickCount: -1 })
-      .select('itemType itemValue clickCount firstClicked lastClicked displayName');
+    const clicks = await ClickAnalytics.find({
+      timestamp: { $gte: dateRange.start, $lte: dateRange.end }
+    })
+    .populate('userId', 'name email')
+    .populate('propertyId', 'title price')
+    .sort({ timestamp: -1 });
 
     if (format === 'csv') {
       // Convert to CSV
       const csvData = convertToCSV(clicks);
-      
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=click-analytics-${new Date().toISOString().split('T')[0]}.csv`);
+      res.setHeader('Content-Disposition', `attachment; filename=click-analytics-${Date.now()}.csv`);
       return res.send(csvData);
+    } else {
+      res.json({
+        success: true,
+        data: clicks
+      });
     }
 
-    // Default JSON response
-    res.status(200).json({
-      success: true,
-      data: clicks,
-      exportInfo: {
-        format,
-        timeframe,
-        exportedAt: new Date().toISOString(),
-        totalRecords: clicks.length
-      }
-    });
-
   } catch (error) {
-    console.error('Error exporting click data:', error);
+    console.error('Export click data error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error exporting click data',
-      error: error.message
+      message: 'Failed to export click data'
     });
   }
 };
 
-// Get click trends over time
 exports.getClickTrends = async (req, res) => {
   try {
     const { timeframe = '30d', groupBy = 'day' } = req.query;
     const dateRange = calculateDateRange(timeframe);
-    
-    const trends = await ClickLog.aggregate([
-      {
-        $match: {
-          timestamp: { 
-            $gte: dateRange.startDate || new Date('2020-01-01'),
-            $lte: dateRange.endDate || new Date() 
-          }
-        }
+
+    let dateFormat = '%Y-%m-%d';
+    if (groupBy === 'week') dateFormat = '%Y-%U';
+    if (groupBy === 'month') dateFormat = '%Y-%m';
+    if (groupBy === 'hour') dateFormat = '%Y-%m-%d %H:00';
+
+    const trends = await ClickAnalytics.aggregate([
+      { 
+        $match: { 
+          timestamp: { $gte: dateRange.start, $lte: dateRange.end } 
+        } 
       },
       {
         $group: {
           _id: {
             date: {
-              $dateToString: { 
-                format: groupBy === 'day' ? '%Y-%m-%d' : '%Y-%m', 
-                date: '$timestamp' 
+              $dateToString: {
+                format: dateFormat,
+                date: '$timestamp'
               }
             },
             itemType: '$itemType'
           },
-          clicks: { $sum: 1 }
+          clicks: { $sum: 1 },
+          uniqueUsers: { $addToSet: '$userId' }
         }
       },
       {
         $group: {
           _id: '$_id.date',
-          clicksByType: {
+          date: { $first: '$_id.date' },
+          totalClicks: { $sum: '$clicks' },
+          uniqueUsers: { $addToSet: '$uniqueUsers' },
+          breakdown: {
             $push: {
               itemType: '$_id.itemType',
               clicks: '$clicks'
             }
-          },
-          totalClicks: { $sum: '$clicks' }
+          }
         }
       },
-      { $sort: { _id: 1 } }
+      {
+        $project: {
+          date: 1,
+          totalClicks: 1,
+          uniqueUsersCount: { $size: { $reduce: {
+            input: '$uniqueUsers',
+            initialValue: [],
+            in: { $setUnion: ['$$value', '$$this'] }
+          }}},
+          breakdown: 1
+        }
+      },
+      { $sort: { date: 1 } }
     ]);
 
-    res.status(200).json({
+    res.json({
       success: true,
-      data: {
-        trends,
-        timeframe: {
-          value: timeframe,
-          ...dateRange
-        },
-        groupBy
-      }
+      data: trends
     });
 
   } catch (error) {
-    console.error('Error fetching click trends:', error);
+    console.error('Get click trends error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching click trends',
-      error: error.message
+      message: 'Failed to fetch click trends'
     });
   }
 };
 
 // Helper function to calculate date ranges
-exports.calculateDateRange = (timeframe) => {
+// Add this function if it doesn't exist
+function calculateDateRange(timeframe) {
   const now = new Date();
-  let startDate = null;
-  let endDate = now;
+  const start = new Date();
 
   switch (timeframe) {
     case '24h':
-      startDate = new Date(now.setDate(now.getDate() - 1));
+      start.setHours(now.getHours() - 24);
       break;
     case '7d':
-      startDate = new Date(now.setDate(now.getDate() - 7));
+      start.setDate(now.getDate() - 7);
       break;
     case '30d':
-      startDate = new Date(now.setDate(now.getDate() - 30));
+      start.setDate(now.getDate() - 30);
       break;
     case '90d':
-      startDate = new Date(now.setDate(now.getDate() - 90));
+      start.setDate(now.getDate() - 90);
       break;
     case '1y':
-      startDate = new Date(now.setFullYear(now.getFullYear() - 1));
+      start.setFullYear(now.getFullYear() - 1);
       break;
     case 'all':
+      start.setFullYear(2020); // Or your app's start year
+      break;
     default:
-      startDate = null;
+      start.setDate(now.getDate() - 7);
   }
 
-  return { startDate, endDate };
-};
+  console.log('📅 Date calculation:', { start, end: now, timeframe });
+  return { start, end: now };
+}
+// Helper function to convert to CSV
+function convertToCSV(data) {
+  const headers = ['Timestamp', 'Item Type', 'Display Name', 'Item Value', 'User', 'Property', 'Page URL', 'Device', 'Country', 'City'];
+  
+  const csvRows = [
+    headers.join(','),
+    ...data.map(item => [
+      item.timestamp.toISOString(),
+      `"${item.itemType}"`,
+      `"${item.displayName}"`,
+      `"${item.itemValue}"`,
+      item.userId ? `"${item.userId.name || item.userId.email}"` : 'Anonymous',
+      item.propertyId ? `"${item.propertyId.title}"` : 'N/A',
+      `"${item.pageUrl}"`,
+      `"${item.deviceType}"`,
+      `"${item.country}"`,
+      `"${item.city}"`
+    ].join(','))
+  ];
 
-// Helper function to convert data to CSV
-exports.convertToCSV = (data) => {
-  if (!data.length) return '';
-  
-  const headers = Object.keys(data[0]._doc).filter(key => 
-    !['_id', '__v'].includes(key)
-  );
-  
-  const csvHeaders = headers.join(',');
-  const csvRows = data.map(item => {
-    return headers.map(header => {
-      const value = item[header];
-      if (value instanceof Date) {
-        return value.toISOString();
+  return csvRows.join('\n');
+}
+// Add this function to your clickController.js
+// Enhanced getHourlyDistribution function with better error handling
+// Replace your getHourlyDistribution function with this corrected version
+exports.getHourlyDistribution = async (req, res) => {
+  try {
+    const { timeframe = '7d' } = req.query;
+    
+    console.log('🕒 Fetching hourly distribution for timeframe:', timeframe);
+    
+    // Calculate date range - FIXED VERSION
+    const dateRange = calculateDateRange(timeframe);
+    console.log('📅 Date range calculated:', dateRange);
+    
+    // Build match query - SIMPLIFIED
+    const matchQuery = {
+      timestamp: { 
+        $gte: new Date(dateRange.start), 
+        $lte: new Date(dateRange.end) 
       }
-      return `"${String(value || '').replace(/"/g, '""')}"`;
-    }).join(',');
-  });
-  
-  return [csvHeaders, ...csvRows].join('\n');
-};
+    };
+    
+    console.log('🔍 Match query:', matchQuery);
 
+    // SIMPLIFIED AGGREGATION PIPELINE
+    const aggregationPipeline = [
+      { 
+        $match: matchQuery 
+      },
+      {
+        $group: {
+          _id: {
+            $hour: "$timestamp"
+          },
+          clicks: { $sum: 1 },
+          uniqueSessions: { $addToSet: "$sessionId" }
+        }
+      },
+      {
+        $project: {
+          hour: "$_id",
+          clicks: 1,
+          uniqueSessionsCount: { $size: "$uniqueSessions" },
+          _id: 0 // Exclude the _id field
+        }
+      },
+      { 
+        $sort: { hour: 1 } 
+      }
+    ];
+
+    console.log('🔧 Aggregation pipeline:', JSON.stringify(aggregationPipeline, null, 2));
+
+    // Execute aggregation
+    const hourlyDistribution = await ClickAnalytics.aggregate(aggregationPipeline);
+    console.log('✅ Aggregation result:', hourlyDistribution);
+
+    // Fill in missing hours with zero values
+    const completeHourlyData = Array.from({ length: 24 }, (_, hour) => {
+      const existingHour = hourlyDistribution.find(item => item.hour === hour);
+      
+      if (existingHour) {
+        return {
+          hour: hour,
+          hourLabel: `${hour.toString().padStart(2, '0')}:00 - ${hour.toString().padStart(2, '0')}:59`,
+          hourFormatted: `${hour.toString().padStart(2, '0')}:00`,
+          period: hour < 12 ? 'AM' : 'PM',
+          periodLabel: hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : hour < 21 ? 'Evening' : 'Night',
+          clicks: existingHour.clicks || 0,
+          uniqueSessionsCount: existingHour.uniqueSessionsCount || 0,
+          engagementRate: existingHour.uniqueSessionsCount > 0 ? 
+            (existingHour.clicks / existingHour.uniqueSessionsCount).toFixed(2) : 0
+        };
+      } else {
+        return {
+          hour: hour,
+          hourLabel: `${hour.toString().padStart(2, '0')}:00 - ${hour.toString().padStart(2, '0')}:59`,
+          hourFormatted: `${hour.toString().padStart(2, '0')}:00`,
+          period: hour < 12 ? 'AM' : 'PM',
+          periodLabel: hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : hour < 21 ? 'Evening' : 'Night',
+          clicks: 0,
+          uniqueSessionsCount: 0,
+          engagementRate: 0
+        };
+      }
+    });
+
+    // Calculate summary
+    const totalClicks = completeHourlyData.reduce((sum, item) => sum + item.clicks, 0);
+    const peakHour = completeHourlyData.reduce((max, item) => 
+      item.clicks > max.clicks ? item : max, { clicks: 0, hour: 0 }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        hourlyDistribution: completeHourlyData,
+        timeframe,
+        dateRange: {
+          start: dateRange.start,
+          end: dateRange.end
+        },
+        summary: {
+          totalClicks,
+          peakHour: {
+            hour: peakHour.hour,
+            hourLabel: peakHour.hourFormatted,
+            clicks: peakHour.clicks
+          },
+          averageClicksPerHour: Math.round(totalClicks / 24)
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Get hourly distribution error:', error);
+    console.error('❌ Error stack:', error.stack);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch hourly distribution',
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+};

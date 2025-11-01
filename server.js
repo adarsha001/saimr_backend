@@ -3,16 +3,16 @@ const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const propertyRoutes = require("./routes/propertyRoutes");
-
+// const ClickAnalytics = require('../models/ClickAnalytics'); 
 dotenv.config();
 
 const app = express();
 
 // Middleware
 // ✅ Enable CORS
-const allowedOrigins = [ "http://localhost:5173",
+const allowedOrigins = [ 
+  "http://localhost:5173",
   "https://saimr-frontend.vercel.app"
- 
 ];
 
 app.use(cors({
@@ -34,6 +34,26 @@ app.use("/api/properties", propertyRoutes);
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
+
+// ✅ ADD CLICK ROUTES HERE
+app.use('/api/clicks', require('./routes/clicks'));
+
+// ✅ Health check route
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'Server is running', 
+    timestamp: new Date().toISOString() 
+  });
+});
+
+// ✅ Test route for clicks
+app.get('/api/test', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'Click API is working' 
+  });
+});
 
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI, {
