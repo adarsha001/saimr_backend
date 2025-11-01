@@ -3,6 +3,7 @@ const geoip = require('geoip-lite');
 const UAParser = require('ua-parser-js');
 
 // Track click function
+// In your trackClick function, add user data
 exports.trackClick = async (req, res) => {
   try {
     const {
@@ -14,10 +15,12 @@ exports.trackClick = async (req, res) => {
       userAgent,
       page,
       timestamp,
-      sessionId
+      sessionId,
+      userId, // Add this
+      userName // Add this
     } = req.body;
 
-    console.log('📥 Received click data:', { itemType, itemValue, displayName });
+    console.log('📥 Received click data:', { itemType, itemValue, displayName, userId });
 
     // Validate required fields
     if (!itemType || !itemValue) {
@@ -27,6 +30,9 @@ exports.trackClick = async (req, res) => {
       });
     }
 
+    // Get user from request if available (from auth middleware)
+    const authenticatedUser = req.user; // Assuming you have auth middleware
+    
     // Get user IP and geolocation
     const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || req.socket.remoteAddress || 'unknown';
     const geo = geoip.lookup(ip);
@@ -35,7 +41,7 @@ exports.trackClick = async (req, res) => {
     const parser = new UAParser(userAgent || req.headers['user-agent']);
     const uaResult = parser.getResult();
 
-    // Create click record
+    // Create click record with user data
     const clickData = {
       sessionId: sessionId || generateSessionId(),
       itemType,
@@ -48,20 +54,24 @@ exports.trackClick = async (req, res) => {
       country: geo?.country || 'Unknown',
       city: geo?.city || 'Unknown',
       deviceType: getDeviceType(uaResult),
-      timestamp: timestamp ? new Date(timestamp) : new Date()
+      timestamp: timestamp ? new Date(timestamp) : new Date(),
+      // Add user information - prioritize authenticated user, then request body
+      userId: authenticatedUser?._id || userId || null,
+      userName: authenticatedUser?.name || authenticatedUser?.username || userName || null
     };
 
     const clickRecord = new ClickAnalytics(clickData);
     await clickRecord.save();
 
-    console.log('✅ Click tracked successfully:', clickRecord._id);
+    console.log('✅ Click tracked successfully:', clickRecord._id, 'User:', clickRecord.userId);
 
     res.json({
       success: true,
       message: 'Click tracked successfully',
       data: { 
         clickId: clickRecord._id,
-        sessionId: clickData.sessionId
+        sessionId: clickData.sessionId,
+        userId: clickRecord.userId
       }
     });
 
@@ -74,8 +84,7 @@ exports.trackClick = async (req, res) => {
   }
 };
 
-// Get complete click analytics
-// Get complete click analytics
+// Get complete click analytics - Updated to show user names
 exports.getClickAnalytics = async (req, res) => {
   try {
     console.log('📊 Backend: Fetching click analytics');
@@ -95,7 +104,7 @@ exports.getClickAnalytics = async (req, res) => {
 
     console.log('🔍 Match query:', matchQuery);
 
-    // Get summary stats
+    // Get summary stats - Updated to include user information
     const summary = await ClickAnalytics.aggregate([
       { $match: matchQuery },
       {
@@ -105,6 +114,15 @@ exports.getClickAnalytics = async (req, res) => {
           uniqueItems: { $addToSet: '$itemValue' },
           uniqueUsers: { $addToSet: '$ipAddress' },
           uniqueSessions: { $addToSet: '$sessionId' },
+          loggedInUsers: {
+            $addToSet: {
+              $cond: [
+                { $ne: ['$userId', null] },
+                { userId: '$userId', userName: '$userName' },
+                '$$REMOVE'
+              ]
+            }
+          },
           countries: { $addToSet: '$country' },
           cities: { $addToSet: '$city' },
           deviceTypes: { $addToSet: '$deviceType' },
@@ -117,10 +135,18 @@ exports.getClickAnalytics = async (req, res) => {
           uniqueItemsCount: { $size: '$uniqueItems' },
           uniqueUsersCount: { $size: '$uniqueUsers' },
           uniqueSessionsCount: { $size: '$uniqueSessions' },
+          loggedInUsersCount: { $size: '$loggedInUsers' },
+          anonymousUsersCount: {
+            $subtract: [
+              { $size: '$uniqueUsers' },
+              { $size: '$loggedInUsers' }
+            ]
+          },
           countriesCount: { $size: '$countries' },
           citiesCount: { $size: '$cities' },
           deviceTypesCount: { $size: '$deviceTypes' },
           itemTypesCount: { $size: '$itemTypes' },
+          loggedInUsers: 1,
           avgClicksPerItem: { 
             $cond: [
               { $eq: [{ $size: '$uniqueItems' }, 0] },
@@ -139,7 +165,7 @@ exports.getClickAnalytics = async (req, res) => {
       }
     ]);
 
-    // Get clicks by type
+    // Get clicks by type - Updated to show user engagement
     const clicksByType = await ClickAnalytics.aggregate([
       { $match: matchQuery },
       {
@@ -147,7 +173,17 @@ exports.getClickAnalytics = async (req, res) => {
           _id: '$itemType',
           totalClicks: { $sum: 1 },
           uniqueItems: { $addToSet: '$itemValue' },
-          uniqueUsers: { $addToSet: '$ipAddress' }
+          uniqueUsers: { $addToSet: '$ipAddress' },
+          loggedInClicks: {
+            $sum: {
+              $cond: [{ $ne: ['$userId', null] }, 1, 0]
+            }
+          },
+          anonymousClicks: {
+            $sum: {
+              $cond: [{ $eq: ['$userId', null] }, 1, 0]
+            }
+          }
         }
       },
       {
@@ -156,6 +192,14 @@ exports.getClickAnalytics = async (req, res) => {
           totalClicks: 1,
           uniqueItemsCount: { $size: '$uniqueItems' },
           uniqueUsersCount: { $size: '$uniqueUsers' },
+          loggedInClicks: 1,
+          anonymousClicks: 1,
+          loggedInPercentage: {
+            $multiply: [
+              { $divide: ['$loggedInClicks', '$totalClicks'] },
+              100
+            ]
+          },
           avgClicksPerItem: {
             $cond: [
               { $eq: [{ $size: '$uniqueItems' }, 0] },
@@ -168,7 +212,7 @@ exports.getClickAnalytics = async (req, res) => {
       { $sort: { totalClicks: -1 } }
     ]);
 
-    // Get popular clicks
+    // Get popular clicks - Updated to show user names
     const popularClicks = await ClickAnalytics.aggregate([
       { $match: matchQuery },
       {
@@ -180,6 +224,23 @@ exports.getClickAnalytics = async (req, res) => {
           },
           clickCount: { $sum: 1 },
           uniqueUsers: { $addToSet: '$ipAddress' },
+          loggedInUsers: {
+            $addToSet: {
+              $cond: [
+                { $ne: ['$userId', null] },
+                { userId: '$userId', userName: '$userName' },
+                '$$REMOVE'
+              ]
+            }
+          },
+          recentUsers: {
+            $push: {
+              userId: '$userId',
+              userName: '$userName',
+              timestamp: '$timestamp',
+              ipAddress: '$ipAddress'
+            }
+          },
           lastClicked: { $max: '$timestamp' }
         }
       },
@@ -190,6 +251,19 @@ exports.getClickAnalytics = async (req, res) => {
           displayName: '$_id.displayName',
           clickCount: 1,
           uniqueUsersCount: { $size: '$uniqueUsers' },
+          loggedInUsersCount: { $size: '$loggedInUsers' },
+          loggedInUsers: { $slice: ['$loggedInUsers', 5] }, // Show top 5 logged-in users
+          recentActivity: {
+            $slice: [
+              {
+                $sortArray: {
+                  input: '$recentUsers',
+                  sortBy: { timestamp: -1 }
+                }
+              },
+              5
+            ]
+          },
           lastClicked: 1
         }
       },
@@ -197,99 +271,67 @@ exports.getClickAnalytics = async (req, res) => {
       { $limit: 10 }
     ]);
 
-    // Get daily trends
-    const dailyTrends = await ClickAnalytics.aggregate([
-      { $match: matchQuery },
+    // Get user engagement stats
+    const userEngagement = await ClickAnalytics.aggregate([
+      { $match: { ...matchQuery, userId: { $ne: null } } },
       {
         $group: {
-          _id: {
-            $dateToString: {
-              format: '%Y-%m-%d',
-              date: '$timestamp'
+          _id: '$userId',
+          userName: { $first: '$userName' },
+          totalClicks: { $sum: 1 },
+          uniqueItemTypes: { $addToSet: '$itemType' },
+          sessions: { $addToSet: '$sessionId' },
+          firstClick: { $min: '$timestamp' },
+          lastClick: { $max: '$timestamp' },
+          clickedItems: {
+            $push: {
+              itemType: '$itemType',
+              itemValue: '$itemValue',
+              displayName: '$displayName',
+              timestamp: '$timestamp'
             }
-          },
-          clicks: { $sum: 1 },
-          uniqueUsers: { $addToSet: '$ipAddress' }
+          }
         }
       },
       {
         $project: {
-          date: '$_id',
-          clicks: 1,
-          uniqueUsersCount: { $size: '$uniqueUsers' }
-        }
-      },
-      { $sort: { date: 1 } }
-    ]);
-
-    // Get geographic data
-    const geographicData = await ClickAnalytics.aggregate([
-      { $match: matchQuery },
-      {
-        $group: {
-          _id: {
-            country: '$country',
-            city: '$city'
+          userId: '$_id',
+          userName: 1,
+          totalClicks: 1,
+          uniqueItemTypesCount: { $size: '$uniqueItemTypes' },
+          sessionsCount: { $size: '$sessions' },
+          activityPeriod: {
+            $divide: [
+              { $subtract: ['$lastClick', '$firstClick'] },
+              1000 * 60 * 60 // Convert to hours
+            ]
           },
-          clicks: { $sum: 1 },
-          uniqueUsers: { $addToSet: '$ipAddress' }
+          clicksPerSession: {
+            $cond: [
+              { $eq: [{ $size: '$sessions' }, 0] },
+              0,
+              { $divide: ['$totalClicks', { $size: '$sessions' }] }
+            ]
+          },
+          lastActivity: '$lastClick',
+          recentClicks: {
+            $slice: [
+              {
+                $sortArray: {
+                  input: '$clickedItems',
+                  sortBy: { timestamp: -1 }
+                }
+              },
+              5
+            ]
+          }
         }
       },
-      {
-        $project: {
-          country: '$_id.country',
-          city: '$_id.city',
-          clicks: 1,
-          uniqueUsersCount: { $size: '$uniqueUsers' }
-        }
-      },
-      { $sort: { clicks: -1 } },
+      { $sort: { totalClicks: -1 } },
       { $limit: 20 }
     ]);
 
-    // Get device data
-    const deviceData = await ClickAnalytics.aggregate([
-      { $match: matchQuery },
-      {
-        $group: {
-          _id: '$deviceType',
-          clicks: { $sum: 1 },
-          uniqueUsers: { $addToSet: '$ipAddress' }
-        }
-      },
-      {
-        $project: {
-          deviceType: '$_id',
-          clicks: 1,
-          uniqueUsersCount: { $size: '$uniqueUsers' }
-        }
-      },
-      { $sort: { clicks: -1 } }
-    ]);
-
-    // Get hourly distribution
-    const hourlyDistribution = await ClickAnalytics.aggregate([
-      { $match: matchQuery },
-      {
-        $group: {
-          _id: {
-            $hour: '$timestamp'
-          },
-          clicks: { $sum: 1 },
-          uniqueSessions: { $addToSet: '$sessionId' }
-        }
-      },
-      {
-        $project: {
-          hour: '$_id',
-          clicks: 1,
-          uniqueSessionsCount: { $size: '$uniqueSessions' }
-        }
-      },
-      { $sort: { hour: 1 } }
-    ]);
-
-    // Get raw data if requested
+    // Get raw data if requested - Updated to include user information
     let rawData = [];
     if (includeRawData === 'true') {
       rawData = await ClickAnalytics.find(matchQuery)
@@ -305,19 +347,23 @@ exports.getClickAnalytics = async (req, res) => {
         uniqueItemsCount: 0,
         uniqueUsersCount: 0,
         uniqueSessionsCount: 0,
+        loggedInUsersCount: 0,
+        anonymousUsersCount: 0,
         countriesCount: 0,
         citiesCount: 0,
         deviceTypesCount: 0,
         itemTypesCount: 0,
         avgClicksPerItem: 0,
-        avgClicksPerSession: 0
+        avgClicksPerSession: 0,
+        loggedInUsers: []
       },
       clicksByType,
       popularClicks,
-      dailyTrends,
-      geographicData,
-      deviceData,
-      hourlyDistribution,
+      userEngagement,
+      dailyTrends: await getDailyTrends(matchQuery),
+      geographicData: await getGeographicData(matchQuery),
+      deviceData: await getDeviceData(matchQuery),
+      hourlyDistribution: await getHourlyDistribution(matchQuery),
       timeframe,
       dateRange: {
         start: dateRange.start,
@@ -1453,6 +1499,141 @@ exports.getHourlyDistribution = async (req, res) => {
       success: false,
       message: 'Failed to fetch hourly distribution',
       error: error.message
+    });
+  }
+};
+
+// Get user-centric analytics
+exports.getUserAnalytics = async (req, res) => {
+  try {
+    const { timeframe = '30d', userId } = req.query;
+    const dateRange = calculateDateRange(timeframe);
+    
+    const matchQuery = {
+      timestamp: { $gte: dateRange.start, $lte: dateRange.end }
+    };
+    
+    if (userId) {
+      matchQuery.userId = new mongoose.Types.ObjectId(userId);
+    } else {
+      matchQuery.userId = { $ne: null }; // Only logged-in users
+    }
+
+    const userAnalytics = await ClickAnalytics.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: '$userId',
+          userName: { $first: '$userName' },
+          totalClicks: { $sum: 1 },
+          sessions: { $addToSet: '$sessionId' },
+          firstActivity: { $min: '$timestamp' },
+          lastActivity: { $max: '$timestamp' },
+          itemTypes: { $addToSet: '$itemType' },
+          clickedItems: {
+            $push: {
+              itemType: '$itemType',
+              itemValue: '$itemValue',
+              displayName: '$displayName',
+              timestamp: '$timestamp',
+              pageUrl: '$pageUrl'
+            }
+          },
+          devices: { $addToSet: '$deviceType' },
+          locations: { $addToSet: { country: '$country', city: '$city' } }
+        }
+      },
+      {
+        $project: {
+          userId: '$_id',
+          userName: 1,
+          totalClicks: 1,
+          sessionsCount: { $size: '$sessions' },
+          itemTypesCount: { $size: '$itemTypes' },
+          devicesCount: { $size: '$devices' },
+          locationsCount: { $size: '$locations' },
+          activityPeriod: {
+            $divide: [
+              { $subtract: ['$lastActivity', '$firstActivity'] },
+              1000 * 60 * 60 * 24 // Convert to days
+            ]
+          },
+          clicksPerSession: {
+            $cond: [
+              { $eq: [{ $size: '$sessions' }, 0] },
+              0,
+              { $divide: ['$totalClicks', { $size: '$sessions' }] }
+            ]
+          },
+          firstActivity: 1,
+          lastActivity: 1,
+          recentClicks: {
+            $slice: [
+              {
+                $sortArray: {
+                  input: '$clickedItems',
+                  sortBy: { timestamp: -1 }
+                }
+              },
+              10
+            ]
+          },
+          favoriteItemTypes: {
+            $slice: [
+              {
+                $sortArray: {
+                  input: {
+                    $map: {
+                      input: '$itemTypes',
+                      as: 'type',
+                      in: {
+                        type: '$$type',
+                        count: {
+                          $size: {
+                            $filter: {
+                              input: '$clickedItems',
+                              as: 'click',
+                              cond: { $eq: ['$$click.itemType', '$$type'] }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  sortBy: { count: -1 }
+                }
+              },
+              5
+            ]
+          },
+          devices: 1,
+          locations: { $slice: ['$locations', 5] }
+        }
+      },
+      { $sort: { totalClicks: -1 } }
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        users: userAnalytics,
+        timeframe,
+        dateRange,
+        totalUsers: userAnalytics.length,
+        summary: {
+          totalClicks: userAnalytics.reduce((sum, user) => sum + user.totalClicks, 0),
+          averageClicksPerUser: userAnalytics.length > 0 ? 
+            Math.round(userAnalytics.reduce((sum, user) => sum + user.totalClicks, 0) / userAnalytics.length) : 0,
+          mostActiveUser: userAnalytics[0] || null
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get user analytics error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user analytics'
     });
   }
 };

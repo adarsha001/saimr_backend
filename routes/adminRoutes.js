@@ -25,7 +25,9 @@ const {
   getClickTrends,
   getRawClickData,
   getUserSessions,
-  trackClick // Make sure this is imported
+  trackClick,
+  getUserAnalytics, // ✅ NEW: Import the user analytics function
+  getHourlyDistribution: getClickHourlyDistribution // ✅ NEW: Import with alias to avoid conflict
 } = require('../controllers/clickController');
 
 // Only admins can access these
@@ -48,7 +50,7 @@ router.patch('/properties/:id', patchProperty);
 router.get('/users', getAllUsersWithLikes);
 router.get('/users/:id', getUserById);
 
-// ✅ CORRECTED: Click Analytics Routes - Direct paths (no /analytics prefix)
+// ✅ ANALYTICS ROUTES - Complete set with user-focused analytics
 router.get('/analytics/clicks', getClickAnalytics);
 router.get('/analytics/clicks/by-type', getClickStatsByType);
 router.get('/analytics/clicks/popular', getPopularClicks);
@@ -56,7 +58,14 @@ router.get('/analytics/clicks/trends', getClickTrends);
 router.get('/analytics/clicks/raw', getRawClickData);
 router.get('/analytics/clicks/sessions', getUserSessions);
 router.get('/analytics/clicks/export', exportClickData);
-router.post('/analytics/track', trackClick); // Add track route
-// Add this route to your existing routes
-router.get('/analytics/clicks/hourly', getHourlyDistribution);;
+router.post('/analytics/track', trackClick);
+
+// ✅ NEW: User-focused analytics routes
+router.get('/analytics/users', getUserAnalytics); // User-centric analytics
+router.get('/analytics/clicks/hourly', getClickHourlyDistribution); // Hourly distribution with user data
+
+// ✅ NEW: Enhanced analytics routes with user filtering
+router.get('/analytics/clicks/user/:userId', getClickAnalytics); // Get analytics for specific user
+router.get('/analytics/clicks/summary', getClickAnalytics); // Alternative summary endpoint
+
 module.exports = router;
