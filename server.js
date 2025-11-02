@@ -12,7 +12,7 @@ const app = express();
 // ✅ Enable CORS
 const allowedOrigins = [ 
   "http://localhost:5173",
-  "https://saimr-frontend.vercel.app"
+  "https://saimr-frontend1.vercel.app"
 ];
 
 app.use(cors({
