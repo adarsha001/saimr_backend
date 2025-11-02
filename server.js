@@ -13,7 +13,7 @@ const app = express();
 const allowedOrigins = [ 
   "http://localhost:5173",
   "https://saimr-frontend1.vercel.app",
-  "https://saimr-frontend.vercel.app/"
+  "https://saimr-frontend-ebon.vercel.app"
 ];
 
 app.use(cors({
