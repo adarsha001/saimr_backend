@@ -1,3 +1,4 @@
+// routes/adminRoutes.js
 const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../middleware/authMiddleware');
@@ -26,9 +27,34 @@ const {
   getRawClickData,
   getUserSessions,
   trackClick,
-  getUserAnalytics, // ✅ NEW: Import the user analytics function
-  getHourlyDistribution: getClickHourlyDistribution // ✅ NEW: Import with alias to avoid conflict
+  getUserAnalytics,
+  getHourlyDistribution: getClickHourlyDistribution
 } = require('../controllers/clickController');
+
+// Enhanced CORS middleware for admin routes
+router.use((req, res, next) => {
+  const allowedOrigins = [
+    'https://saimr-frontend.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:5173'
+  ];
+  const origin = req.headers.origin;
+  
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  next();
+});
 
 // Only admins can access these
 router.use(protect, authorize('admin')); 
@@ -50,7 +76,7 @@ router.patch('/properties/:id', patchProperty);
 router.get('/users', getAllUsersWithLikes);
 router.get('/users/:id', getUserById);
 
-// ✅ ANALYTICS ROUTES - Complete set with user-focused analytics
+// Analytics routes
 router.get('/analytics/clicks', getClickAnalytics);
 router.get('/analytics/clicks/by-type', getClickStatsByType);
 router.get('/analytics/clicks/popular', getPopularClicks);
@@ -60,12 +86,21 @@ router.get('/analytics/clicks/sessions', getUserSessions);
 router.get('/analytics/clicks/export', exportClickData);
 router.post('/analytics/track', trackClick);
 
-// ✅ NEW: User-focused analytics routes
-router.get('/analytics/users', getUserAnalytics); // User-centric analytics
-router.get('/analytics/clicks/hourly', getClickHourlyDistribution); // Hourly distribution with user data
+// User-focused analytics routes
+router.get('/analytics/users', getUserAnalytics);
+router.get('/analytics/clicks/hourly', getClickHourlyDistribution);
 
-// ✅ NEW: Enhanced analytics routes with user filtering
-router.get('/analytics/clicks/user/:userId', getClickAnalytics); // Get analytics for specific user
-router.get('/analytics/clicks/summary', getClickAnalytics); // Alternative summary endpoint
+// Enhanced analytics routes with user filtering
+router.get('/analytics/clicks/user/:userId', getClickAnalytics);
+router.get('/analytics/clicks/summary', getClickAnalytics);
+
+// Test endpoint
+router.get('/test', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'Admin API is working',
+    timestamp: new Date().toISOString()
+  });
+});
 
 module.exports = router;
