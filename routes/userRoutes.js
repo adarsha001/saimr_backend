@@ -2,11 +2,14 @@ const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
 const {
-  getProfile,
-  updateProfile,
+  getUserProfile,
+  getUserEnquiries,
+  updateUserProfile,
+  deleteUserAccount,
   getLikedProperties,
   getPostedProperties
 } = require('../controllers/userController');
+
 const {
   likeProperty,
   unlikeProperty,
@@ -14,9 +17,15 @@ const {
   toggleLike
 } = require('../controllers/likeController');
 
-// User routes
-router.get('/profile', protect, getProfile);
-router.put('/profile', protect, updateProfile);
+// User profile routes
+router.get('/profile', protect, getUserProfile);
+router.put('/profile', protect, updateUserProfile);
+router.delete('/account', protect, deleteUserAccount);
+
+// User enquiries routes
+router.get('/my-enquiries', protect, getUserEnquiries);
+
+// User properties routes
 router.get('/liked-properties', protect, getLikedProperties);
 router.get('/posted-properties', protect, getPostedProperties);
 

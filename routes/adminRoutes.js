@@ -31,6 +31,19 @@ const {
   getHourlyDistribution: getClickHourlyDistribution
 } = require('../controllers/clickController');
 
+// Import enquiry controller
+const {
+  getAllEnquiries,
+  getEnquiryById,
+  updateEnquiryStatus,
+  addEnquiryNotes,
+  deleteEnquiry,
+  bulkUpdateEnquiries,
+  getEnquiryStats,
+  exportEnquiries,
+  getEnquiriesByUserId
+} = require('../controllers/enquiryController');
+
 // Enhanced CORS middleware for admin routes
 router.use((req, res, next) => {
   const allowedOrigins = [
@@ -59,6 +72,37 @@ router.use((req, res, next) => {
 // Only admins can access these
 router.use(protect, authorize('admin')); 
 
+// ==================== ENQUIRY MANAGEMENT ROUTES ====================
+
+// Get all enquiries with pagination and filters
+router.get('/enquiries', getAllEnquiries);
+
+// Get enquiry by ID
+router.get('/enquiries/:id', getEnquiryById);
+
+// Update enquiry status
+router.put('/enquiries/:id/status', updateEnquiryStatus);
+
+// Add notes to enquiry
+router.post('/enquiries/:id/notes', addEnquiryNotes);
+
+// Delete enquiry
+router.delete('/enquiries/:id', deleteEnquiry);
+
+// Bulk update enquiries
+router.put('/enquiries/bulk-update', bulkUpdateEnquiries);
+
+// Get enquiry statistics
+router.get('/enquiries/stats', getEnquiryStats);
+
+// Export enquiries
+router.get('/enquiries/export', exportEnquiries);
+
+// Get enquiries by user ID
+router.get('/enquiries/user/:userId', getEnquiriesByUserId);
+
+// ==================== PROPERTY MANAGEMENT ROUTES ====================
+
 // Property management routes
 router.get('/properties/pending', getPendingProperties);
 router.get('/properties', getPropertiesByStatus);
@@ -72,9 +116,13 @@ router.get('/properties/stats', getPropertyStats);
 router.put('/properties/:id', updateProperty);
 router.patch('/properties/:id', patchProperty);
 
+// ==================== USER MANAGEMENT ROUTES ====================
+
 // User management routes
 router.get('/users', getAllUsersWithLikes);
 router.get('/users/:id', getUserById);
+
+// ==================== ANALYTICS ROUTES ====================
 
 // Analytics routes
 router.get('/analytics/clicks', getClickAnalytics);
