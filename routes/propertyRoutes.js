@@ -9,8 +9,8 @@ router.get("/", getProperties);
 router.get("/:id", getPropertyById);
 
 // Protected routes - require authentication
-router.post("/", upload.array("images", 10), createProperty);
 router.use(protect); // This applies to all routes below
+router.post("/", upload.array("images", 10), createProperty);
 router.get('/my-properties', getPropertiesByUser);
 
 module.exports = router;
