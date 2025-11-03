@@ -25,10 +25,10 @@ const createProperty = async (req, res) => {
       coordinates,
       mapUrl,
       category,
-      approvalStatus, // ADD THIS LINE - receive approvalStatus from frontend
-      isFeatured,
+      approvalStatus, // Will be overridden based on user role
+      isFeatured,     // Will be overridden based on user role
+      isVerified,     // Will be overridden based on user role
       forSale,
-      isVerified,
       attributes,
       distanceKey,
       features,
@@ -52,12 +52,40 @@ const createProperty = async (req, res) => {
       });
     }
 
-    // Validate approvalStatus if provided
-    if (approvalStatus && !["pending", "approved", "rejected"].includes(approvalStatus)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid approval status'
-      });
+    // SECURITY: Determine sensitive fields based on user role
+    const isAdminUser = req.user.isAdmin || req.user.userType === 'superadmin' || req.user.userType === 'admin';
+    
+    let finalApprovalStatus = "pending"; // Default for regular users
+    let finalIsFeatured = false; // Default for regular users
+    let finalIsVerified = false; // Default for regular users
+
+    // Only allow admin users to set these sensitive fields
+    if (isAdminUser) {
+      // Admin can set approvalStatus
+      if (approvalStatus && ["pending", "approved", "rejected"].includes(approvalStatus)) {
+        finalApprovalStatus = approvalStatus;
+      }
+      
+      // Admin can set isFeatured
+      if (isFeatured !== undefined) {
+        finalIsFeatured = isFeatured === 'true' || isFeatured === true;
+      }
+      
+      // Admin can set isVerified
+      if (isVerified !== undefined) {
+        finalIsVerified = isVerified === 'true' || isVerified === true;
+      }
+    }
+    // For non-admin users, always use default values regardless of what they send
+    else {
+      finalApprovalStatus = "pending";
+      finalIsFeatured = false;
+      finalIsVerified = false;
+      
+      // Log attempted security breach
+      if (approvalStatus === "approved" || isFeatured === true || isFeatured === 'true' || isVerified === true || isVerified === 'true') {
+        console.warn(`Security Alert: User ${req.user._id} attempted to set privileged fields without authorization`);
+      }
     }
 
     // Upload images to Cloudinary
@@ -93,7 +121,6 @@ const createProperty = async (req, res) => {
     let parsedCoordinates = {};
     let parsedDistanceKey = [];
     let parsedFeatures = [];
-    let parsedApprovalStatus = approvalStatus; // Default to what frontend sends
 
     try {
       parsedAttributes = attributes ? JSON.parse(attributes) : {};
@@ -101,11 +128,6 @@ const createProperty = async (req, res) => {
       parsedCoordinates = coordinates ? JSON.parse(coordinates) : {};
       parsedDistanceKey = distanceKey ? JSON.parse(distanceKey) : [];
       parsedFeatures = features ? JSON.parse(features) : [];
-      
-      // Parse approvalStatus if it's sent as string
-      if (approvalStatus && typeof approvalStatus === 'string') {
-        parsedApprovalStatus = approvalStatus;
-      }
     } catch (parseError) {
       console.error('JSON parse error:', parseError);
       return res.status(400).json({
@@ -142,7 +164,6 @@ const createProperty = async (req, res) => {
 
     // Validate attributes based on category
     if (category === "Farmland") {
-      // Farmland specific validations
       if (!parsedAttributes.square) {
         return res.status(400).json({
           success: false,
@@ -152,7 +173,6 @@ const createProperty = async (req, res) => {
     }
 
     if (category === "JD/JV") {
-      // JD/JV specific validations
       if (!parsedAttributes.typeOfJV) {
         return res.status(400).json({
           success: false,
@@ -161,7 +181,7 @@ const createProperty = async (req, res) => {
       }
     }
 
-    // Create new property with dynamic approvalStatus
+    // Create new property with SECURED fields
     const newProperty = new Property({
       title,
       description,
@@ -173,10 +193,10 @@ const createProperty = async (req, res) => {
       coordinates: parsedCoordinates,
       mapUrl,
       category,
-      approvalStatus: parsedApprovalStatus || "pending", // Use frontend value or default to "pending"
-      isFeatured: isFeatured === 'true' || isFeatured === true,
+      approvalStatus: finalApprovalStatus, // Secured value
+      isFeatured: finalIsFeatured,         // Secured value
+      isVerified: finalIsVerified,         // Secured value
       forSale: forSale === 'true' || forSale === true,
-      isVerified: isVerified === 'true' || isVerified === true,
       createdBy: req.user._id,
       attributes: parsedAttributes,
       distanceKey: parsedDistanceKey,
@@ -190,14 +210,17 @@ const createProperty = async (req, res) => {
     await newProperty.populate('createdBy', 'name username gmail phoneNumber');
 
     // Dynamic success message based on approval status
-    const successMessage = parsedApprovalStatus === "approved" 
+    const successMessage = finalApprovalStatus === "approved" 
       ? "Property added successfully and approved! It is now live on the platform."
       : "Property added successfully! It will be visible after admin approval.";
 
     res.status(201).json({
       success: true,
       message: successMessage,
-      property: newProperty,
+      property: {
+        ...newProperty.toObject(),
+        // Don't send sensitive info about what was attempted vs what was set
+      },
     });
   } catch (error) {
     console.error('Property creation error:', error);
@@ -208,6 +231,8 @@ const createProperty = async (req, res) => {
     });
   }
 };
+
+
 const getProperties = async (req, res) => {
   try {
     const {

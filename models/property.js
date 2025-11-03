@@ -55,7 +55,7 @@ const propertySchema = new mongoose.Schema(
 
     // 🧱 Key attributes
     attributes: {
-      square: Number,
+      square: String,
       propertyLabel: String,
       leaseDuration: String, // optional for future lease expansion
       typeOfJV: String, // JD/JV only
