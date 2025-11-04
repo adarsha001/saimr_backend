@@ -326,7 +326,7 @@ const getProperties = async (req, res) => {
       isFeatured,
       isVerified,
       page = 1,
-      limit = 10,
+      limit = 100,
       sortBy = 'displayOrder', // Changed from 'createdAt' to 'displayOrder'
       sortOrder = 'asc' // Changed from 'desc' to 'asc' for display order
     } = req.query;
