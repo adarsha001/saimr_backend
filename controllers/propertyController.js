@@ -232,6 +232,73 @@ const createProperty = async (req, res) => {
   }
 };
 
+// controllers/propertyController.js
+
+
+const createPropertyn = async (req, res) => {
+  try {
+    let uploadedImages = [];
+
+    // 1️⃣ If Cloudinary URLs already exist in JSON
+    if (req.body.images && Array.isArray(req.body.images) && req.body.images.length > 0) {
+      uploadedImages = req.body.images.map(img => ({
+        url: img.url,
+        public_id: img.public_id || null,
+      }));
+    }
+
+    // 2️⃣ If actual files are uploaded (for fallback)
+    else if (req.files && req.files.length > 0) {
+      for (let file of req.files) {
+        const result = await cloudinary.uploader.upload(file.path, {
+          folder: "properties",
+        });
+        uploadedImages.push({
+          url: result.secure_url,
+          public_id: result.public_id,
+        });
+      }
+    }
+
+    // 3️⃣ Error if nothing is provided
+    else {
+      return res.status(400).json({
+        success: false,
+        message: "At least one image is required (either URL or file)",
+      });
+    }
+
+    // 4️⃣ Create property
+    const newProperty = await Property.create({
+      title: req.body.title,
+      description: req.body.description,
+      content: req.body.content,
+      city: req.body.city,
+      propertyLocation: req.body.propertyLocation,
+      price: req.body.price,
+      category: req.body.category,
+      attributes: req.body.attributes,
+      features: req.body.features,
+      nearby: req.body.nearby,
+      images: uploadedImages,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Property created successfully",
+      data: newProperty,
+    });
+  } catch (error) {
+    console.error("Error creating property:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while creating property",
+      error: error.message,
+    });
+  }
+};
+
+module.exports = { createProperty };
 
 const getProperties = async (req, res) => {
   try {
@@ -540,7 +607,7 @@ const deleteProperty = async (req, res) => {
 
 module.exports = { 
   createProperty, 
-  getProperties, 
+  getProperties, createPropertyn,
 
   getPropertyById, 
   getPropertiesByUser,
