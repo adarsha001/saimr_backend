@@ -268,7 +268,19 @@ const createPropertyn = async (req, res) => {
       });
     }
 
-    // 4️⃣ Create property
+    // 4️⃣ Get createdBy value
+    // If user is authenticated → req.user._id
+    // If no auth (like from n8n) → req.body.createdBy
+    const createdBy = req.user?._id || req.body.createdBy;
+
+    if (!createdBy) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required field: createdBy",
+      });
+    }
+
+    // 5️⃣ Create property
     const newProperty = await Property.create({
       title: req.body.title,
       description: req.body.description,
@@ -281,6 +293,11 @@ const createPropertyn = async (req, res) => {
       features: req.body.features,
       nearby: req.body.nearby,
       images: uploadedImages,
+      approvalStatus: req.body.approvalStatus || "pending",
+      forSale: req.body.forSale ?? true,
+      isFeatured: req.body.isFeatured ?? false,
+      isVerified: req.body.isVerified ?? false,
+      createdBy, // ✅ Required field
     });
 
     res.status(201).json({
@@ -297,8 +314,6 @@ const createPropertyn = async (req, res) => {
     });
   }
 };
-
-module.exports = { createProperty };
 
 const getProperties = async (req, res) => {
   try {
