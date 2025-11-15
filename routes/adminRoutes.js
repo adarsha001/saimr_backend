@@ -17,6 +17,7 @@ const {
   updateProperty,
   patchProperty,
   getHourlyDistribution,
+  getPropertyById,
 } = require('../controllers/adminController');
 const {
   getClickAnalytics,
@@ -115,7 +116,7 @@ router.put('/properties/bulk-update', bulkUpdateProperties);
 router.get('/properties/stats', getPropertyStats);
 router.put('/properties/:id', updateProperty);
 router.patch('/properties/:id', patchProperty);
-
+router.get('/properties/:id', getPropertyById);
 // ==================== USER MANAGEMENT ROUTES ====================
 
 // User management routes

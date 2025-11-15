@@ -819,12 +819,59 @@ exports.getUserById = async (req, res) => {
     });
   }
 };
+// ✅ Get property by ID for editing (NEW - CRITICAL FIX)
+exports.getPropertyById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    console.log('🔍 Fetching property by ID:', id);
+    
+    // Validate ID format
+    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid property ID format" 
+      });
+    }
 
-// ✅ Update property details (Admin only)
+    const property = await Property.findById(id)
+      .populate('createdBy', 'name username gmail phoneNumber');
+    
+    if (!property) {
+      console.log('❌ Property not found with ID:', id);
+      return res.status(404).json({ 
+        success: false, 
+        message: "Property not found" 
+      });
+    }
+
+    console.log('✅ Property found:', {
+      id: property._id,
+      title: property.title,
+      category: property.category,
+      hasAttributes: !!property.attributes,
+      hasNearby: !!property.nearby,
+      featuresCount: property.features?.length || 0
+    });
+    
+    res.status(200).json({
+      success: true,
+      property
+    });
+  } catch (error) {
+    console.error('❌ Error fetching property:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Error fetching property",
+      error: error.message 
+    });
+  }
+};
+// ✅ Update property details (Admin only) - IMPROVED VERSION
 exports.updateProperty = async (req, res) => {
   try {
     const { id } = req.params;
-    console.log('🔄 Admin updating property:', id);
+    console.log('🔄 Admin updating property:', id, 'with data:', JSON.stringify(req.body, null, 2));
 
     // Validate ID format
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
@@ -842,6 +889,13 @@ exports.updateProperty = async (req, res) => {
         message: "Property not found" 
       });
     }
+
+    console.log('📋 Existing property:', {
+      title: existingProperty.title,
+      category: existingProperty.category,
+      attributes: existingProperty.attributes,
+      nearby: existingProperty.nearby
+    });
 
     // Define allowed fields that admin can update
     const allowedUpdates = {
@@ -862,36 +916,64 @@ exports.updateProperty = async (req, res) => {
     // Build update object
     const updateData = {};
     
-    // Update basic fields
+    // Update basic fields with proper cleaning
     allowedUpdates.basic.forEach(field => {
       if (req.body[field] !== undefined) {
-        updateData[field] = req.body[field];
+        // Clean price and displayOrder
+        if (field === 'price' || field === 'displayOrder') {
+          updateData[field] = req.body[field] === '' ? 0 : Number(req.body[field]);
+        } else {
+          updateData[field] = req.body[field];
+        }
       }
     });
 
-    // Update attributes
+    // Update attributes - handle empty values properly
     if (req.body.attributes) {
       updateData.attributes = { ...existingProperty.attributes._doc };
       allowedUpdates.attributes.forEach(field => {
         if (req.body.attributes[field] !== undefined) {
-          updateData.attributes[field] = req.body.attributes[field];
+          // Convert empty strings to undefined for cleaner data
+          if (req.body.attributes[field] === '') {
+            updateData.attributes[field] = undefined;
+          } 
+          // Handle numeric fields
+          else if (field === 'expectedROI' || field === 'square') {
+            updateData.attributes[field] = Number(req.body.attributes[field]);
+          }
+          // Handle boolean fields
+          else if (field === 'irrigationAvailable' || field === 'legalClearance') {
+            updateData.attributes[field] = Boolean(req.body.attributes[field]);
+          }
+          else {
+            updateData.attributes[field] = req.body.attributes[field];
+          }
         }
       });
+
+      // CRITICAL: Ensure typeOfJV for JD/JV properties
+      if (updateData.category === 'JD/JV' && (!updateData.attributes.typeOfJV || updateData.attributes.typeOfJV === '')) {
+        updateData.attributes.typeOfJV = 'General Partnership';
+      }
     }
 
     // Update arrays
     allowedUpdates.arrays.forEach(field => {
       if (req.body[field] !== undefined) {
-        updateData[field] = req.body[field];
+        updateData[field] = Array.isArray(req.body[field]) ? req.body[field] : [];
       }
     });
 
-    // Update nearby distances
+    // Update nearby distances - handle empty values and convert to numbers
     if (req.body.nearby) {
       updateData.nearby = { ...existingProperty.nearby._doc };
       Object.keys(req.body.nearby).forEach(key => {
         if (req.body.nearby[key] !== undefined) {
-          updateData.nearby[key] = req.body.nearby[key];
+          if (req.body.nearby[key] === '') {
+            updateData.nearby[key] = undefined;
+          } else {
+            updateData.nearby[key] = Number(req.body.nearby[key]);
+          }
         }
       });
     }
@@ -918,17 +1000,15 @@ exports.updateProperty = async (req, res) => {
     }
 
     // Validate category-specific fields
-    if (updateData.category) {
-      const validationError = validateCategorySpecificFields(updateData, existingProperty);
-      if (validationError) {
-        return res.status(400).json({
-          success: false,
-          message: validationError
-        });
-      }
+    const validationError = validateCategorySpecificFields(updateData, existingProperty);
+    if (validationError) {
+      return res.status(400).json({
+        success: false,
+        message: validationError
+      });
     }
 
-    console.log('📝 Update data:', JSON.stringify(updateData, null, 2));
+    console.log('📝 Final update data being saved:', JSON.stringify(updateData, null, 2));
 
     // Update the property
     const updatedProperty = await Property.findByIdAndUpdate(
@@ -940,7 +1020,14 @@ exports.updateProperty = async (req, res) => {
       }
     ).populate('createdBy', 'name username gmail phoneNumber');
 
-    console.log('✅ Property updated successfully');
+    if (!updatedProperty) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Property not found after update" 
+      });
+    }
+
+    console.log('✅ Property updated successfully:', updatedProperty._id);
 
     res.status(200).json({
       success: true,
@@ -974,7 +1061,6 @@ exports.updateProperty = async (req, res) => {
     });
   }
 };
-
 // ✅ Partial update for specific fields (Admin only)
 exports.patchProperty = async (req, res) => {
   try {
@@ -1048,37 +1134,37 @@ exports.patchProperty = async (req, res) => {
 };
 
 // Helper function to validate category-specific fields
-function validateCategorySpecificFields(updateData, existingProperty) {
-  const category = updateData.category || existingProperty.category;
+// function validateCategorySpecificFields(updateData, existingProperty) {
+//   const category = updateData.category || existingProperty.category;
   
-  switch (category) {
-    case 'JD/JV':
-      if (updateData.attributes && !updateData.attributes.typeOfJV) {
-        return 'JD/JV properties require typeOfJV field';
-      }
-      break;
+//   switch (category) {
+//     case 'JD/JV':
+//       if (updateData.attributes && !updateData.attributes.typeOfJV) {
+//         return 'JD/JV properties require typeOfJV field';
+//       }
+//       break;
       
-    case 'Farmland':
-      if (updateData.attributes && updateData.attributes.irrigationAvailable === undefined) {
-        return 'Farmland properties require irrigationAvailable field';
-      }
-      break;
+//     case 'Farmland':
+//       if (updateData.attributes && updateData.attributes.irrigationAvailable === undefined) {
+//         return 'Farmland properties require irrigationAvailable field';
+//       }
+//       break;
       
-    case 'Commercial':
-      if (updateData.attributes && !updateData.attributes.expectedROI) {
-        return 'Commercial properties require expectedROI field';
-      }
-      break;
+//     case 'Commercial':
+//       if (updateData.attributes && !updateData.attributes.expectedROI) {
+//         return 'Commercial properties require expectedROI field';
+//       }
+//       break;
       
-    case 'Outright':
-      if (updateData.attributes && updateData.attributes.legalClearance === undefined) {
-        return 'Outright properties require legalClearance field';
-      }
-      break;
-  }
+//     case 'Outright':
+//       if (updateData.attributes && updateData.attributes.legalClearance === undefined) {
+//         return 'Outright properties require legalClearance field';
+//       }
+//       break;
+//   }
   
-  return null;
-}
+//   return null;
+// }
 // Click Analytics Functions
 exports.getClickAnalytics = async (req, res) => {
   try {
@@ -1660,3 +1746,48 @@ exports.getHourlyDistribution = async (req, res) => {
     });
   }
 };
+// Enhanced helper function to validate category-specific fields
+function validateCategorySpecificFields(updateData, existingProperty) {
+  const category = updateData.category || existingProperty.category;
+  
+  console.log('🔍 Validating category-specific fields for:', category);
+  
+  switch (category) {
+    case 'JD/JV':
+      if (updateData.attributes && (!updateData.attributes.typeOfJV || updateData.attributes.typeOfJV === '')) {
+        console.log('❌ JD/JV validation failed: typeOfJV is required');
+        return 'JD/JV properties require typeOfJV field';
+      }
+      console.log('✅ JD/JV validation passed');
+      break;
+      
+    case 'Farmland':
+      if (updateData.attributes && updateData.attributes.irrigationAvailable === undefined) {
+        console.log('❌ Farmland validation failed: irrigationAvailable is required');
+        return 'Farmland properties require irrigationAvailable field';
+      }
+      console.log('✅ Farmland validation passed');
+      break;
+      
+    case 'Commercial':
+      if (updateData.attributes && (!updateData.attributes.expectedROI || updateData.attributes.expectedROI === '')) {
+        console.log('❌ Commercial validation failed: expectedROI is required');
+        return 'Commercial properties require expectedROI field';
+      }
+      console.log('✅ Commercial validation passed');
+      break;
+      
+    case 'Outright':
+      if (updateData.attributes && updateData.attributes.legalClearance === undefined) {
+        console.log('❌ Outright validation failed: legalClearance is required');
+        return 'Outright properties require legalClearance field';
+      }
+      console.log('✅ Outright validation passed');
+      break;
+      
+    default:
+      console.log('ℹ️ No specific validation for category:', category);
+  }
+  
+  return null;
+}
