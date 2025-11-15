@@ -326,9 +326,9 @@ const getProperties = async (req, res) => {
       isFeatured,
       isVerified,
       page = 1,
-      limit = 100,
-      sortBy = 'displayOrder', // Changed from 'createdAt' to 'displayOrder'
-      sortOrder = 'asc' // Changed from 'desc' to 'asc' for display order
+      limit = 1000, // Changed from 10 to 1000 to get all properties
+      sortBy = 'displayOrder',
+      sortOrder = 'asc'
     } = req.query;
 
     // Build filter object - only show approved properties
