@@ -868,6 +868,7 @@ exports.getPropertyById = async (req, res) => {
   }
 };
 // ✅ Update property details (Admin only) - IMPROVED VERSION
+// ✅ Update property details (Admin only) - Save price as it is
 exports.updateProperty = async (req, res) => {
   try {
     const { id } = req.params;
@@ -893,6 +894,8 @@ exports.updateProperty = async (req, res) => {
     console.log('📋 Existing property:', {
       title: existingProperty.title,
       category: existingProperty.category,
+      price: existingProperty.price,
+      priceType: typeof existingProperty.price,
       attributes: existingProperty.attributes,
       nearby: existingProperty.nearby
     });
@@ -919,10 +922,22 @@ exports.updateProperty = async (req, res) => {
     // Update basic fields with proper cleaning
     allowedUpdates.basic.forEach(field => {
       if (req.body[field] !== undefined) {
-        // Clean price and displayOrder
-        if (field === 'price' || field === 'displayOrder') {
+        // Handle displayOrder - convert to number
+        if (field === 'displayOrder') {
           updateData[field] = req.body[field] === '' ? 0 : Number(req.body[field]);
-        } else {
+        }
+        // Handle price - save as it is (string or number)
+        else if (field === 'price') {
+          // If it's a string, trim it
+          if (typeof req.body.price === 'string') {
+            updateData.price = req.body.price.trim();
+          } else {
+            // If it's a number, keep as number
+            updateData.price = req.body.price;
+          }
+        }
+        // All other fields - keep as is
+        else {
           updateData[field] = req.body[field];
         }
       }
@@ -938,13 +953,14 @@ exports.updateProperty = async (req, res) => {
             updateData.attributes[field] = undefined;
           } 
           // Handle numeric fields
-          else if (field === 'expectedROI' || field === 'square') {
+          else if (field === 'expectedROI') {
             updateData.attributes[field] = Number(req.body.attributes[field]);
           }
           // Handle boolean fields
           else if (field === 'irrigationAvailable' || field === 'legalClearance') {
             updateData.attributes[field] = Boolean(req.body.attributes[field]);
           }
+          // All other attribute fields - keep as is
           else {
             updateData.attributes[field] = req.body.attributes[field];
           }
@@ -1009,6 +1025,11 @@ exports.updateProperty = async (req, res) => {
     }
 
     console.log('📝 Final update data being saved:', JSON.stringify(updateData, null, 2));
+    console.log('💰 Price details:', {
+      originalPrice: req.body.price,
+      savedPrice: updateData.price,
+      priceType: typeof updateData.price
+    });
 
     // Update the property
     const updatedProperty = await Property.findByIdAndUpdate(
@@ -1027,7 +1048,12 @@ exports.updateProperty = async (req, res) => {
       });
     }
 
-    console.log('✅ Property updated successfully:', updatedProperty._id);
+    console.log('✅ Property updated successfully:', {
+      id: updatedProperty._id,
+      title: updatedProperty.title,
+      price: updatedProperty.price,
+      priceType: typeof updatedProperty.price
+    });
 
     res.status(200).json({
       success: true,
@@ -1791,3 +1817,4 @@ function validateCategorySpecificFields(updateData, existingProperty) {
   
   return null;
 }
+
