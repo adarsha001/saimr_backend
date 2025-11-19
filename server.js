@@ -29,6 +29,8 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: "10mb" }));
+app.use('/robots.txt', express.static('public/robots.txt'));
+app.use('/sitemap.xml', express.static('public/sitemap.xml'));
 
 // Routes
 app.use("/api/properties", propertyRoutes);
