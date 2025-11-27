@@ -11,7 +11,11 @@ const app = express();
 // Middleware
 // ✅ Enable CORS
 const allowedOrigins = [ 
+<<<<<<< HEAD
   "http://localhost:5173","https://cleartitle1.vercel.app",
+=======
+  "http://localhost:5173","https://cleartitle1.vercel.app","https://www.cleartitle1.com",
+>>>>>>> d8681dd32cd700a893561acca318cf555e08ba11
   "https://saimr-frontend1.vercel.app","https://www.saimrgroups.com",
   "https://saimr-frontend-ebon.vercel.app"
 ];
