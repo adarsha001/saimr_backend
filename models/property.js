@@ -35,7 +35,9 @@ const propertySchema = new mongoose.Schema(
       type: String,
       enum: ["pending", "approved", "rejected"],
       default: "pending"
-    },    displayOrder: {
+    },
+    
+    displayOrder: {
       type: Number,
       default: 0,
       min: 0
@@ -51,6 +53,45 @@ const propertySchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
+    },
+
+    // 🏢 Agent Information
+    agentDetails: {
+      agentId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Agent",
+      },
+      name: {
+        type: String,
+        trim: true
+      },
+      phoneNumber: {
+        type: String,
+        trim: true
+      },
+      alternativePhoneNumber: {
+        type: String,
+        trim: true
+      },
+      email: {
+        type: String,
+        trim: true,
+        lowercase: true
+      },
+      company: {
+        type: String,
+        trim: true
+      },
+      languages: [{
+        type: String,
+        trim: true
+      }],
+      officeAddress: {
+        street: String,
+        city: String,
+        state: String,
+        pincode: String
+      }
     },
 
     // 🧱 Key attributes
@@ -115,5 +156,8 @@ const propertySchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Index for better query performance
+propertySchema.index({ "agentDetails.agentId": 1 });
 
 module.exports = mongoose.model("Property", propertySchema);

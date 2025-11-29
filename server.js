@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const cors = require("cors");
 const propertyRoutes = require("./routes/propertyRoutes");
+const agentRoutes = require("./routes/agentroute");
 // const ClickAnalytics = require('../models/ClickAnalytics'); 
 dotenv.config();
 
@@ -40,10 +41,11 @@ app.use("/api/properties", propertyRoutes);
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
-
+app.use('/api/admin/agent', require('./routes/agentroute'))
 // ✅ ADD CLICK ROUTES HERE
 app.use('/api/clicks', require('./routes/clicks'));
 
+app.use("/api/agents", agentRoutes);
 // ✅ Health check route
 app.get('/api/health', (req, res) => {
   res.json({ 

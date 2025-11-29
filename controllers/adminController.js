@@ -1817,4 +1817,439 @@ function validateCategorySpecificFields(updateData, existingProperty) {
   
   return null;
 }
+exports.createPropertyByAdmin = async (req, res) => {
+  try {
+    console.log('Admin creating property, user:', req.user);
+    console.log('Files received:', req.files);
+
+    const {
+      title,
+      description,
+      content,
+      city,
+      propertyLocation,
+      coordinates,
+      price,
+      mapUrl,
+      category,
+      approvalStatus,
+      displayOrder,
+      forSale,
+      isFeatured,
+      isVerified,
+      rejectionReason,
+      agentDetails,
+      attributes,
+      distanceKey,
+      features,
+      nearby
+    } = req.body;
+
+    // Validate required fields
+    if (!title || !city || !propertyLocation || !price || !category) {
+      return res.status(400).json({
+        success: false,
+        message: "Required fields are missing: title, city, propertyLocation, price, category"
+      });
+    }
+
+    // Validate category enum
+    const validCategories = ["Outright", "Commercial", "Farmland", "JD/JV"];
+    if (!validCategories.includes(category)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid category. Must be one of: Outright, Commercial, Farmland, JD/JV"
+      });
+    }
+
+    // Upload images to Cloudinary
+    const uploadedImages = [];
+    if (req.files && req.files.length > 0) {
+      console.log(`Uploading ${req.files.length} images to Cloudinary...`);
+      
+      for (let file of req.files) {
+        try {
+          const result = await cloudinary.uploader.upload(file.path, {
+            folder: "properties",
+            quality: "auto",
+            fetch_format: "auto"
+          });
+          uploadedImages.push({
+            url: result.secure_url,
+            public_id: result.public_id,
+          });
+          console.log(`Image uploaded successfully: ${result.secure_url}`);
+        } catch (uploadError) {
+          console.error('Cloudinary upload error:', uploadError);
+          return res.status(500).json({
+            success: false,
+            message: 'Error uploading images to Cloudinary'
+          });
+        }
+      }
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one image is required'
+      });
+    }
+
+    // Parse JSON fields with error handling
+    let parsedAttributes = {};
+    let parsedNearby = {};
+    let parsedCoordinates = {};
+    let parsedDistanceKey = [];
+    let parsedFeatures = [];
+    let parsedAgentDetails = {};
+
+    try {
+      parsedAttributes = attributes ? JSON.parse(attributes) : {};
+      parsedNearby = nearby ? JSON.parse(nearby) : {};
+      parsedCoordinates = coordinates ? JSON.parse(coordinates) : {};
+      parsedDistanceKey = distanceKey ? JSON.parse(distanceKey) : [];
+      parsedFeatures = features ? JSON.parse(features) : [];
+      parsedAgentDetails = agentDetails ? JSON.parse(agentDetails) : {};
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid JSON format in one of the fields'
+      });
+    }
+
+    // Validate features based on category
+    const validFeatures = {
+      Commercial: [
+        "Conference Room", "CCTV Surveillance", "Power Backup", "Fire Safety",
+        "Cafeteria", "Reception Area", "Parking", "Lift(s)"
+      ],
+      Farmland: [
+        "Borewell", "Fencing", "Electricity Connection", "Water Source",
+        "Drip Irrigation", "Storage Shed"
+      ],
+      Outright: [
+        "Highway Access", "Legal Assistance", "Joint Development Approved",
+        "Investor Friendly", "Gated Boundary"
+      ],
+      "JD/JV": [
+        "Highway Access", "Legal Assistance", "Joint Development Approved",
+        "Investor Friendly", "Gated Boundary"
+      ]
+    };
+
+    // Filter features to only include valid ones for the category
+    const categoryFeatures = validFeatures[category] || [];
+    const filteredFeatures = parsedFeatures.filter(feature => 
+      categoryFeatures.includes(feature)
+    );
+
+    // Create property with all fields including uploaded images
+    const property = new Property({
+      title,
+      description: description || "",
+      content: content || "",
+      images: uploadedImages, // Use uploaded images from Cloudinary
+      city,
+      propertyLocation,
+      coordinates: parsedCoordinates || {},
+      price,
+      mapUrl: mapUrl || "",
+      category,
+      approvalStatus: approvalStatus || "approved", // Auto-approve admin properties
+      displayOrder: displayOrder || 0,
+      forSale: forSale !== undefined ? forSale : true,
+      isFeatured: isFeatured || false,
+      isVerified: isVerified || false,
+      rejectionReason: rejectionReason || "",
+      agentDetails: parsedAgentDetails || {},
+      attributes: {
+        square: parsedAttributes?.square || "",
+        propertyLabel: parsedAttributes?.propertyLabel || "",
+        leaseDuration: parsedAttributes?.leaseDuration || "",
+        typeOfJV: parsedAttributes?.typeOfJV || "",
+        expectedROI: parsedAttributes?.expectedROI || null,
+        irrigationAvailable: parsedAttributes?.irrigationAvailable || false,
+        facing: parsedAttributes?.facing || "",
+        roadWidth: parsedAttributes?.roadWidth || null,
+        waterSource: parsedAttributes?.waterSource || "",
+        soilType: parsedAttributes?.soilType || "",
+        legalClearance: parsedAttributes?.legalClearance || false,
+      },
+      distanceKey: parsedDistanceKey || [],
+      features: filteredFeatures || [],
+      nearby: {
+        Highway: parsedNearby?.Highway || null,
+        Airport: parsedNearby?.Airport || null,
+        BusStop: parsedNearby?.BusStop || null,
+        Metro: parsedNearby?.Metro || null,
+        CityCenter: parsedNearby?.CityCenter || null,
+        IndustrialArea: parsedNearby?.IndustrialArea || null,
+      },
+      createdBy: req.user.id, // Admin user ID
+    });
+
+    await property.save();
+
+    // Populate the property with creator details
+    await property.populate('createdBy', 'name username userType');
+
+    res.status(201).json({
+      success: true,
+      message: "Property created successfully with images",
+      data: property
+    });
+
+  } catch (error) {
+    console.error("Error creating property:", error);
+    
+    // Clean up uploaded images if property creation fails
+    if (req.files && req.files.length > 0) {
+      console.log('Cleaning up uploaded images due to error...');
+      // You might want to add cleanup logic here if needed
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: "Error creating property",
+      error: error.message
+    });
+  }
+};
+
+// Update property with all fields including images
+exports.updatePropertyByAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      title,
+      description,
+      content,
+      city,
+      propertyLocation,
+      coordinates,
+      price,
+      mapUrl,
+      category,
+      approvalStatus,
+      displayOrder,
+      forSale,
+      isFeatured,
+      isVerified,
+      rejectionReason,
+      agentDetails,
+      attributes,
+      distanceKey,
+      features,
+      nearby
+    } = req.body;
+
+    // Find existing property
+    const existingProperty = await Property.findById(id);
+    if (!existingProperty) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found"
+      });
+    }
+
+    // Upload new images to Cloudinary if provided
+    let uploadedImages = [];
+    if (req.files && req.files.length > 0) {
+      console.log(`Uploading ${req.files.length} new images to Cloudinary...`);
+      
+      for (let file of req.files) {
+        try {
+          const result = await cloudinary.uploader.upload(file.path, {
+            folder: "properties",
+            quality: "auto",
+            fetch_format: "auto"
+          });
+          uploadedImages.push({
+            url: result.secure_url,
+            public_id: result.public_id,
+          });
+        } catch (uploadError) {
+          console.error('Cloudinary upload error:', uploadError);
+          return res.status(500).json({
+            success: false,
+            message: 'Error uploading images to Cloudinary'
+          });
+        }
+      }
+    }
+
+    // Parse JSON fields with error handling
+    let parsedAttributes = {};
+    let parsedNearby = {};
+    let parsedCoordinates = {};
+    let parsedDistanceKey = [];
+    let parsedFeatures = [];
+    let parsedAgentDetails = {};
+
+    try {
+      parsedAttributes = attributes ? JSON.parse(attributes) : existingProperty.attributes;
+      parsedNearby = nearby ? JSON.parse(nearby) : existingProperty.nearby;
+      parsedCoordinates = coordinates ? JSON.parse(coordinates) : existingProperty.coordinates;
+      parsedDistanceKey = distanceKey ? JSON.parse(distanceKey) : existingProperty.distanceKey;
+      parsedFeatures = features ? JSON.parse(features) : existingProperty.features;
+      parsedAgentDetails = agentDetails ? JSON.parse(agentDetails) : existingProperty.agentDetails;
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid JSON format in one of the fields'
+      });
+    }
+
+    // Build update object
+    const updateData = {};
+    
+    // Basic fields
+    if (title !== undefined) updateData.title = title;
+    if (description !== undefined) updateData.description = description;
+    if (content !== undefined) updateData.content = content;
+    if (city !== undefined) updateData.city = city;
+    if (propertyLocation !== undefined) updateData.propertyLocation = propertyLocation;
+    if (coordinates !== undefined) updateData.coordinates = parsedCoordinates;
+    if (price !== undefined) updateData.price = price;
+    if (mapUrl !== undefined) updateData.mapUrl = mapUrl;
+    if (category !== undefined) updateData.category = category;
+    if (approvalStatus !== undefined) updateData.approvalStatus = approvalStatus;
+    if (displayOrder !== undefined) updateData.displayOrder = displayOrder;
+    if (forSale !== undefined) updateData.forSale = forSale;
+    if (isFeatured !== undefined) updateData.isFeatured = isFeatured;
+    if (isVerified !== undefined) updateData.isVerified = isVerified;
+    if (rejectionReason !== undefined) updateData.rejectionReason = rejectionReason;
+    
+    // Handle images - if new images uploaded, replace all images
+    if (uploadedImages.length > 0) {
+      // Delete old images from Cloudinary
+      for (let image of existingProperty.images) {
+        try {
+          await cloudinary.uploader.destroy(image.public_id);
+        } catch (deleteError) {
+          console.error('Error deleting old image:', deleteError);
+        }
+      }
+      updateData.images = uploadedImages;
+    }
+    
+    // Agent details
+    if (agentDetails !== undefined) {
+      updateData.agentDetails = parsedAgentDetails;
+    }
+    
+    // Attributes
+    if (attributes !== undefined) {
+      updateData.attributes = parsedAttributes;
+    }
+    
+    // Arrays
+    if (distanceKey !== undefined) updateData.distanceKey = parsedDistanceKey;
+    if (features !== undefined) updateData.features = parsedFeatures;
+    
+    // Nearby
+    if (nearby !== undefined) {
+      updateData.nearby = parsedNearby;
+    }
+
+    const property = await Property.findByIdAndUpdate(
+      id,
+      { $set: updateData },
+      { 
+        new: true, 
+        runValidators: true,
+        context: 'query'
+      }
+    ).populate('createdBy', 'name username userType');
+
+    res.json({
+      success: true,
+      message: "Property updated successfully",
+      data: property
+    });
+
+  } catch (error) {
+    console.error("Error updating property:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating property",
+      error: error.message
+    });
+  }
+};
+
+// Get properties with agent details and all fields
+exports.getPropertiesWithAgents = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      category,
+      city,
+      hasAgent = false,
+      approvalStatus,
+      forSale,
+      isFeatured,
+      isVerified,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    const filter = {};
+    
+    // Build filter object
+    if (category) filter.category = category;
+    if (city) filter.city = new RegExp(city, 'i');
+    if (approvalStatus) filter.approvalStatus = approvalStatus;
+    if (forSale !== undefined) filter.forSale = forSale === 'true';
+    if (isFeatured !== undefined) filter.isFeatured = isFeatured === 'true';
+    if (isVerified !== undefined) filter.isVerified = isVerified === 'true';
+    
+    if (hasAgent === 'true') {
+      filter['agentDetails.name'] = { $exists: true, $ne: '' };
+    }
+
+    // Build sort object
+    const sort = {};
+    if (sortBy === 'displayOrder') {
+      sort.displayOrder = -1;
+      sort.createdAt = -1;
+    } else if (sortBy === 'price') {
+      sort.price = sortOrder === 'asc' ? 1 : -1;
+    } else if (sortBy === 'title') {
+      sort.title = sortOrder === 'asc' ? 1 : -1;
+    } else {
+      sort.createdAt = sortOrder === 'asc' ? 1 : -1;
+    }
+
+    const properties = await Property.find(filter)
+      .populate('createdBy', 'name username userType email phoneNumber')
+      .sort(sort)
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await Property.countDocuments(filter);
+
+    res.json({
+      success: true,
+      data: properties,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / limit),
+        totalProperties: total,
+        hasNextPage: page * limit < total,
+        hasPrevPage: page > 1
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching properties:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching properties",
+      error: error.message
+    });
+  }
+};
 

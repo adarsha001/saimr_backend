@@ -19,6 +19,7 @@ const {
   getHourlyDistribution,
   getPropertyById,
 } = require('../controllers/adminController');
+
 const {
   getClickAnalytics,
   getClickStatsByType,
@@ -44,31 +45,8 @@ const {
   exportEnquiries,
   getEnquiriesByUserId
 } = require('../controllers/enquiryController');
+const upload = require('../middlewares/multer');
 
-// Enhanced CORS middleware for admin routes
-router.use((req, res, next) => {
-  const allowedOrigins = [
-    'https://saimr-frontend.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:5173'
-  ];
-  const origin = req.headers.origin;
-  
-  if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-  
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-  
-  next();
-});
 
 // Only admins can access these
 router.use(protect, authorize('admin')); 
@@ -142,6 +120,10 @@ router.get('/analytics/clicks/hourly', getClickHourlyDistribution);
 // Enhanced analytics routes with user filtering
 router.get('/analytics/clicks/user/:userId', getClickAnalytics);
 router.get('/analytics/clicks/summary', getClickAnalytics);
+
+
+
+
 
 // Test endpoint
 router.get('/test', (req, res) => {

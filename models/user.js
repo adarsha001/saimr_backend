@@ -20,7 +20,7 @@ const userSchema = new mongoose.Schema({
   },
   lastName: {
     type: String,
-    required: [true, 'Last name is required'],
+   
     trim: true,
     maxlength: [50, 'Last name cannot exceed 50 characters']
   },
@@ -43,6 +43,17 @@ const userSchema = new mongoose.Schema({
       message: 'Please provide a valid phone number'
     }
   },
+  // Additional phone number for agents
+  alternativePhoneNumber: {
+    type: String,
+    validate: {
+      validator: function(v) {
+        if (!v) return true; // Optional field
+        return /^\+?[\d\s\-\(\)]{10,}$/.test(v);
+      },
+      message: 'Please provide a valid phone number'
+    }
+  },
   gmail: {
     type: String,
     required: [true, 'Gmail is required'],
@@ -55,6 +66,21 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Password is required'],
     minlength: [6, 'Password must be at least 6 characters long'],
     select: false
+  },
+  // Agent-specific fields
+  company: {
+    type: String,
+    trim: true
+  },
+  languages: [{
+    type: String,
+    trim: true
+  }],
+  officeAddress: {
+    street: String,
+    city: String,
+    state: String,
+    pincode: String
   },
   // Array of properties liked by the user
   likedProperties: [{
