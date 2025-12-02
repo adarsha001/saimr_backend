@@ -8,7 +8,7 @@ const verifyCaptcha = async (captchaToken) => {
       null,
       {
         params: {
-          secret: process.env.RECAPTCHA_SECRET_KEY, // Your Secret Key
+          secret:env.RECAPTCHA_SECRET_KEY, // Your Secret Key
           response: captchaToken
         }
       }
