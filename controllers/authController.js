@@ -1,20 +1,29 @@
 const User = require('../models/user');
 const axios = require('axios'); 
-// reCAPTCHA Verification Middleware
+
+// reCAPTCHA v2 Verification Middleware
 const verifyCaptcha = async (captchaToken) => {
   try {
+    // For v2 verification
     const response = await axios.post(
       "https://www.google.com/recaptcha/api/siteverify",
       null,
       {
         params: {
-          secret:env.RECAPTCHA_SECRET_KEY, // Your Secret Key
+          secret: process.env.RECAPTCHA_SECRET_KEY, // Your Secret Key
           response: captchaToken
         }
       }
     );
 
-    return response.data.success && response.data.score >= 0.5;
+    console.log('reCAPTCHA v2 Verification:', {
+      success: response.data.success,
+      timestamp: response.data.challenge_ts,
+      hostname: response.data.hostname
+    });
+    
+    // For v2, we only check success (no score)
+    return response.data.success;
   } catch (error) {
     console.error("Captcha verification error:", error);
     return false;
@@ -35,12 +44,21 @@ const register = async (req, res) => {
       captchaToken 
     } = req.body;
 
+    console.log("Registration attempt for:", username);
+
     // 1. Verify CAPTCHA first
+    if (!captchaToken) {
+      return res.status(400).json({
+        success: false,
+        message: "Please complete the captcha verification"
+      });
+    }
+
     const isCaptchaValid = await verifyCaptcha(captchaToken);
     if (!isCaptchaValid) {
       return res.status(400).json({
         success: false,
-        message: "Captcha verification failed. Please try again."
+        message: "Captcha verification failed. Please complete the 'I'm not a robot' check"
       });
     }
 
@@ -87,14 +105,24 @@ const register = async (req, res) => {
     });
   } catch (error) {
     console.error("Registration error:", error);
+    
+    // Handle specific Mongoose errors
+    let errorMessage = "Error in registration";
+    if (error.code === 11000) {
+      errorMessage = "Username or email already exists";
+    } else if (error.name === 'ValidationError') {
+      errorMessage = Object.values(error.errors).map(err => err.message).join(', ');
+    }
+    
     res.status(500).json({
       success: false,
-      message: "Error in registration",
-      error: error.message
+      message: errorMessage,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
+module.exports = { register };
 // Login user
 const login = async (req, res) => {
   try {
