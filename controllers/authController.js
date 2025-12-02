@@ -1,4 +1,5 @@
 const User = require('../models/user');
+const axios = require('axios'); 
 // reCAPTCHA Verification Middleware
 const verifyCaptcha = async (captchaToken) => {
   try {
