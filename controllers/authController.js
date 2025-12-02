@@ -1,12 +1,49 @@
 const User = require('../models/user');
+// reCAPTCHA Verification Middleware
+const verifyCaptcha = async (captchaToken) => {
+  try {
+    const response = await axios.post(
+      "https://www.google.com/recaptcha/api/siteverify",
+      null,
+      {
+        params: {
+          secret: process.env.RECAPTCHA_SECRET_KEY, // Your Secret Key
+          response: captchaToken
+        }
+      }
+    );
+
+    return response.data.success && response.data.score >= 0.5;
+  } catch (error) {
+    console.error("Captcha verification error:", error);
+    return false;
+  }
+};
 
 // Register user
 const register = async (req, res) => {
   try {
-    const { username, name, lastName, userType, phoneNumber, gmail, password } = req.body;
-console.log(req.body);
+    const { 
+      username, 
+      name, 
+      lastName, 
+      userType, 
+      phoneNumber, 
+      gmail, 
+      password,
+      captchaToken 
+    } = req.body;
 
-    // Check if user already exists
+    // 1. Verify CAPTCHA first
+    const isCaptchaValid = await verifyCaptcha(captchaToken);
+    if (!isCaptchaValid) {
+      return res.status(400).json({
+        success: false,
+        message: "Captcha verification failed. Please try again."
+      });
+    }
+
+    // 2. Check if user already exists
     const existingUser = await User.findOne({
       $or: [{ gmail }, { username }]
     });
@@ -14,11 +51,11 @@ console.log(req.body);
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: 'User already exists with this email or username'
+        message: "User already exists with this email or username"
       });
     }
 
-    // Create user
+    // 3. Create user
     const user = await User.create({
       username,
       name,
@@ -29,12 +66,12 @@ console.log(req.body);
       password
     });
 
-    // Generate token
+    // 4. Generate token
     const token = user.getSignedJwtToken();
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: "User registered successfully",
       token,
       user: {
         id: user._id,
@@ -48,10 +85,10 @@ console.log(req.body);
       }
     });
   } catch (error) {
-    console.error(error);
+    console.error("Registration error:", error);
     res.status(500).json({
       success: false,
-      message: 'Error in registration',
+      message: "Error in registration",
       error: error.message
     });
   }
