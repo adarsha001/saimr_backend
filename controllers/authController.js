@@ -122,7 +122,7 @@ const register = async (req, res) => {
   }
 };
 
-module.exports = { register };
+
 // Login user
 const login = async (req, res) => {
   try {
