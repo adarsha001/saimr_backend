@@ -46,6 +46,7 @@ const {
   getEnquiriesByUserId
 } = require('../controllers/enquiryController');
 const upload = require('../middlewares/multer');
+const { assignPropertiesToWebsites, getPropertiesForAdmin } = require('../controllers/propertyController');
 
 
 // Only admins can access these
@@ -124,6 +125,8 @@ router.get('/analytics/clicks/summary', getClickAnalytics);
 
 
 
+router.post('/properties/assign-websites', assignPropertiesToWebsites);
+router.get('/properties', getPropertiesForAdmin);
 
 // Test endpoint
 router.get('/test', (req, res) => {
