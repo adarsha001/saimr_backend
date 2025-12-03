@@ -315,6 +315,7 @@ const createPropertyn = async (req, res) => {
   }
 };
 
+
 const getProperties = async (req, res) => {
   try {
     const {
@@ -325,25 +326,60 @@ const getProperties = async (req, res) => {
       forSale,
       isFeatured,
       isVerified,
+      website = "cleartitle", // Default to cleartitle (parent)
       page = 1,
-      limit = 1000, // Changed from 10 to 1000 to get all properties
+      limit = 1000,
       sortBy = 'displayOrder',
-      sortOrder = 'asc'
+      sortOrder = 'asc',
+      search
     } = req.query;
 
     // Build filter object - only show approved properties
     const filter = { approvalStatus: 'approved' };
     
+    // 🌐 WEBSITE FILTERING LOGIC
+    if (website === "cleartitle") {
+      // Cleartitle (parent) shows all properties
+      // No additional filter needed
+    } else if (website === "saimr") {
+      // Saimr (child) shows only properties assigned to it
+      filter.$or = [
+        { websiteAssignment: "both" },
+        { websiteAssignment: "saimr" },
+        // OR using boolean fields:
+        { visibleOnSaimr: true }
+      ];
+    } else if (website === "both") {
+      // Show properties available on both websites
+      filter.$or = [
+        { websiteAssignment: "both" },
+        { $and: [{ visibleOnCleartitle: true }, { visibleOnSaimr: true }] }
+      ];
+    }
+    
+    // Apply other filters
     if (category) filter.category = category;
     if (city) filter.city = { $regex: city, $options: 'i' };
     if (forSale) filter.forSale = forSale === 'true';
     if (isFeatured) filter.isFeatured = isFeatured === 'true';
     if (isVerified) filter.isVerified = isVerified === 'true';
     
-    // Price filter - handle numeric prices only
+    // Search functionality
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { content: { $regex: search, $options: 'i' } },
+        { city: { $regex: search, $options: 'i' } },
+        { propertyLocation: { $regex: search, $options: 'i' } },
+        { "attributes.propertyLabel": { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    // Price filter
     if (minPrice || maxPrice) {
       filter.price = { 
-        $not: { $eq: "Price on Request" }, // Exclude "Price on Request" from price range
+        $not: { $eq: "Price on Request" },
         ...(minPrice && { $gte: parseFloat(minPrice) }),
         ...(maxPrice && { $lte: parseFloat(maxPrice) })
       };
@@ -366,14 +402,159 @@ const getProperties = async (req, res) => {
       properties,
       totalPages: Math.ceil(total / limit),
       currentPage: page,
-      total
+      total,
+      website // Return which website filter was applied
     });
   } catch (error) {
-    console.error(error);
+    console.error("Error fetching properties:", error);
     res.status(500).json({ 
       success: false,
       message: "Server Error", 
       error: error.message 
+    });
+  }
+};
+
+// controllers/adminController.js
+
+// Assign properties to websites (bulk)
+const assignPropertiesToWebsites = async (req, res) => {
+  try {
+    const { propertyIds, websites, action } = req.body;
+    
+    if (!propertyIds || !Array.isArray(propertyIds) || propertyIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please select at least one property"
+      });
+    }
+
+    if (!websites || !Array.isArray(websites) || websites.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please select at least one website"
+      });
+    }
+
+    let updateQuery = {};
+    
+    // Determine update based on action
+    if (action === "assign") {
+      // Add websites to assignment
+      updateQuery = { $addToSet: { websiteAssignment: { $each: websites } } };
+    } else if (action === "remove") {
+      // Remove websites from assignment
+      updateQuery = { $pullAll: { websiteAssignment: websites } };
+    } else if (action === "replace") {
+      // Replace with new websites
+      updateQuery = { websiteAssignment: websites };
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid action. Use 'assign', 'remove', or 'replace'"
+      });
+    }
+
+    // Update properties
+    const result = await Property.updateMany(
+      { _id: { $in: propertyIds } },
+      updateQuery
+    );
+
+    // Also update boolean fields for backward compatibility
+    const booleanUpdate = {
+      visibleOnCleartitle: websites.includes("cleartitle"),
+      visibleOnSaimr: websites.includes("saimr")
+    };
+
+    await Property.updateMany(
+      { _id: { $in: propertyIds } },
+      { $set: booleanUpdate }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `${result.modifiedCount} properties updated successfully`,
+      data: {
+        modifiedCount: result.modifiedCount,
+        websites: websites,
+        action: action
+      }
+    });
+  } catch (error) {
+    console.error("Error assigning properties to websites:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating website assignments",
+      error: error.message
+    });
+  }
+};
+
+// Get properties with website assignment info for admin
+const getPropertiesForAdmin = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 50,
+      search,
+      website,
+      approvalStatus
+    } = req.query;
+
+    const filter = {};
+    
+    // Search filter
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { city: { $regex: search, $options: 'i' } },
+        { propertyLocation: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    // Website filter
+    if (website) {
+      if (website === "cleartitle") {
+        filter.visibleOnCleartitle = true;
+      } else if (website === "saimr") {
+        filter.visibleOnSaimr = true;
+      } else if (website === "unassigned") {
+        filter.$or = [
+          { websiteAssignment: { $exists: false } },
+          { websiteAssignment: { $size: 0 } },
+          { $and: [{ visibleOnCleartitle: false }, { visibleOnSaimr: false }] }
+        ];
+      }
+    }
+    
+    // Approval status filter
+    if (approvalStatus) {
+      filter.approvalStatus = approvalStatus;
+    }
+
+    const properties = await Property.find(filter)
+      .select('title city category price approvalStatus websiteAssignment visibleOnCleartitle visibleOnSaimr isFeatured displayOrder createdAt')
+      .populate('createdBy', 'name username')
+      .sort({ displayOrder: 1, createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await Property.countDocuments(filter);
+
+    res.status(200).json({
+      success: true,
+      properties,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      total
+    });
+  } catch (error) {
+    console.error("Error fetching properties for admin:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message
     });
   }
 };
@@ -628,5 +809,5 @@ module.exports = {
   getPropertiesByUser,
   updatePropertyStatus,
   updateProperty,
-  deleteProperty
+  deleteProperty,getPropertiesForAdmin,assignPropertiesToWebsites
 };

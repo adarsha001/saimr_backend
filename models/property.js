@@ -41,7 +41,10 @@ const propertySchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0
-    },
+    }, 
+    isFeatured: { type: Boolean, default: false },
+    isVerified: { type: Boolean, default: false },
+    
 
     forSale: { type: Boolean, default: true },
     isFeatured: { type: Boolean, default: false },
