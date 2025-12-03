@@ -552,14 +552,25 @@ exports.bulkUpdateProperties = async (req, res) => {
       });
     }
 
-    if (!['approvalStatus', 'isFeatured'].includes(action)) {
+    if (!['approvalStatus', 'isFeatured', 'isVerified', 'forSale', 'displayOrder'].includes(action)) {
       return res.status(400).json({ 
         success: false, 
         message: "Invalid action" 
       });
     }
 
+    // Validate ID format for all property IDs
+    const invalidIds = propertyIds.filter(id => !id.match(/^[0-9a-fA-F]{24}$/));
+    if (invalidIds.length > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid property ID format(s)", 
+        invalidIds 
+      });
+    }
+
     const updateData = {};
+    
     if (action === 'approvalStatus') {
       if (!['pending', 'approved', 'rejected'].includes(value)) {
         return res.status(400).json({ 
@@ -569,32 +580,103 @@ exports.bulkUpdateProperties = async (req, res) => {
       }
       updateData.approvalStatus = value;
       if (value === 'rejected') {
-        updateData.rejectionReason = reason || "No reason provided";
+        // Allow empty rejection reason or null
+        updateData.rejectionReason = reason || reason === null ? reason : "No reason provided";
       } else {
-        updateData.rejectionReason = "";
+        // For non-rejected status, set rejectionReason to null or empty string
+        updateData.rejectionReason = null; // or "" depending on your preference
       }
-    } else if (action === 'isFeatured') {
-      updateData.isFeatured = value === 'true' || value === true;
+    } 
+    else if (action === 'isFeatured') {
+      // Handle various boolean inputs including empty/null
+      if (value === '' || value === null || value === undefined) {
+        updateData.isFeatured = null; // Allow null if explicitly set to empty
+      } else {
+        updateData.isFeatured = value === 'true' || value === true || value === '1';
+      }
     }
+    else if (action === 'isVerified') {
+      // Handle various boolean inputs including empty/null
+      if (value === '' || value === null || value === undefined) {
+        updateData.isVerified = null; // Allow null if explicitly set to empty
+      } else {
+        updateData.isVerified = value === 'true' || value === true || value === '1';
+      }
+    }
+    else if (action === 'forSale') {
+      // Handle various boolean inputs including empty/null
+      if (value === '' || value === null || value === undefined) {
+        updateData.forSale = null; // Allow null if explicitly set to empty
+      } else {
+        updateData.forSale = value === 'true' || value === true || value === '1';
+      }
+    }
+    else if (action === 'displayOrder') {
+      // Handle display order - can be null/empty or number
+      if (value === '' || value === null || value === undefined) {
+        updateData.displayOrder = null; // Allow null if empty
+      } else {
+        const numValue = Number(value);
+        updateData.displayOrder = isNaN(numValue) ? 0 : numValue; // Default to 0 if invalid
+      }
+    }
+
+    // Add timestamp for the update
+    updateData.updatedAt = Date.now();
 
     const result = await Property.updateMany(
       { _id: { $in: propertyIds } },
-      updateData,
-      { runValidators: true }
+      { $set: updateData },
+      { 
+        runValidators: true,
+        setDefaultsOnInsert: true // Allow setting fields to null
+      }
     );
 
-    // Get updated properties
+    // Check if any properties weren't found
+    const foundProperties = await Property.countDocuments({ _id: { $in: propertyIds } });
+    if (foundProperties !== propertyIds.length) {
+      console.warn(`⚠️ Some properties not found: ${propertyIds.length - foundProperties} of ${propertyIds.length}`);
+    }
+
+    // Get updated properties with lean for better performance
     const updatedProperties = await Property.find({ _id: { $in: propertyIds } })
-      .populate('createdBy', 'name username gmail phoneNumber');
+      .populate('createdBy', 'name username gmail phoneNumber')
+      .lean();
 
     res.status(200).json({
       success: true,
-      message: `Successfully updated ${result.modifiedCount} properties`,
+      message: `Successfully updated ${result.modifiedCount} of ${result.matchedCount} properties`,
       updatedCount: result.modifiedCount,
-      properties: updatedProperties
+      matchedCount: result.matchedCount,
+      notFoundCount: propertyIds.length - foundProperties,
+      properties: updatedProperties,
+      summary: {
+        action,
+        value,
+        reason: action === 'approvalStatus' && value === 'rejected' ? reason : undefined
+      }
     });
   } catch (error) {
     console.error('❌ Error in bulk update:', error);
+    
+    // Handle specific error types
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map(val => val.message);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error in bulk update',
+        errors: errors
+      });
+    }
+    
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid property ID in bulk update'
+      });
+    }
+
     res.status(500).json({ 
       success: false, 
       message: "Error updating properties",
@@ -943,58 +1025,69 @@ exports.updateProperty = async (req, res) => {
       }
     });
 
-    // Update attributes - handle empty values properly
+    // Update attributes - allow empty values for optional fields
     if (req.body.attributes) {
       updateData.attributes = { ...existingProperty.attributes._doc };
       allowedUpdates.attributes.forEach(field => {
         if (req.body.attributes[field] !== undefined) {
-          // Convert empty strings to undefined for cleaner data
+          // Handle empty strings - keep as empty string or null
           if (req.body.attributes[field] === '') {
-            updateData.attributes[field] = undefined;
+            updateData.attributes[field] = null; // or '' depending on your preference
           } 
-          // Handle numeric fields
-          else if (field === 'expectedROI') {
-            updateData.attributes[field] = Number(req.body.attributes[field]);
+          // Handle numeric fields - allow empty or null
+          else if (field === 'expectedROI' || field === 'roadWidth') {
+            const numValue = Number(req.body.attributes[field]);
+            updateData.attributes[field] = isNaN(numValue) ? null : numValue;
           }
-          // Handle boolean fields
+          // Handle boolean fields - with null option
           else if (field === 'irrigationAvailable' || field === 'legalClearance') {
-            updateData.attributes[field] = Boolean(req.body.attributes[field]);
+            // Handle various boolean inputs including empty
+            if (req.body.attributes[field] === '' || req.body.attributes[field] === null) {
+              updateData.attributes[field] = null;
+            } else if (req.body.attributes[field] === true || req.body.attributes[field] === 'true' || req.body.attributes[field] === '1') {
+              updateData.attributes[field] = true;
+            } else if (req.body.attributes[field] === false || req.body.attributes[field] === 'false' || req.body.attributes[field] === '0') {
+              updateData.attributes[field] = false;
+            } else {
+              updateData.attributes[field] = Boolean(req.body.attributes[field]);
+            }
           }
-          // All other attribute fields - keep as is
+          // All other attribute fields - keep as is (can be empty)
           else {
             updateData.attributes[field] = req.body.attributes[field];
           }
         }
       });
 
-      // CRITICAL: Ensure typeOfJV for JD/JV properties
+      // CRITICAL: Ensure typeOfJV for JD/JV properties (only if it's actually JD/JV category)
       if (updateData.category === 'JD/JV' && (!updateData.attributes.typeOfJV || updateData.attributes.typeOfJV === '')) {
         updateData.attributes.typeOfJV = 'General Partnership';
       }
     }
 
-    // Update arrays
+    // Update arrays - can be empty
     allowedUpdates.arrays.forEach(field => {
       if (req.body[field] !== undefined) {
         updateData[field] = Array.isArray(req.body[field]) ? req.body[field] : [];
       }
     });
 
-    // Update nearby distances - handle empty values and convert to numbers
+    // Update nearby distances - allow empty/null values
     if (req.body.nearby) {
       updateData.nearby = { ...existingProperty.nearby._doc };
       Object.keys(req.body.nearby).forEach(key => {
         if (req.body.nearby[key] !== undefined) {
-          if (req.body.nearby[key] === '') {
-            updateData.nearby[key] = undefined;
+          if (req.body.nearby[key] === '' || req.body.nearby[key] === null) {
+            updateData.nearby[key] = null;
           } else {
-            updateData.nearby[key] = Number(req.body.nearby[key]);
+            const numValue = Number(req.body.nearby[key]);
+            updateData.nearby[key] = isNaN(numValue) ? null : numValue;
           }
         }
       });
     }
 
-    // Update images (with validation)
+    // Update images (with validation) - can be empty array
     if (req.body.images) {
       if (!Array.isArray(req.body.images)) {
         return res.status(400).json({
@@ -1003,19 +1096,21 @@ exports.updateProperty = async (req, res) => {
         });
       }
       
-      // Validate each image has required fields
-      const invalidImages = req.body.images.filter(img => !img.url);
-      if (invalidImages.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'All images must have a URL'
-        });
+      // Only validate if there are images in the array
+      if (req.body.images.length > 0) {
+        const invalidImages = req.body.images.filter(img => !img.url);
+        if (invalidImages.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'All images must have a URL'
+          });
+        }
       }
       
       updateData.images = req.body.images;
     }
 
-    // Validate category-specific fields
+    // Validate category-specific fields (modify this function to allow empty optional fields)
     const validationError = validateCategorySpecificFields(updateData, existingProperty);
     if (validationError) {
       return res.status(400).json({
@@ -1037,7 +1132,9 @@ exports.updateProperty = async (req, res) => {
       { $set: updateData },
       { 
         new: true, 
-        runValidators: true 
+        runValidators: true,
+        // This option allows setting fields to null
+        setDefaultsOnInsert: true 
       }
     ).populate('createdBy', 'name username gmail phoneNumber');
 
