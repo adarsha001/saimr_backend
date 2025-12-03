@@ -337,24 +337,13 @@ const getProperties = async (req, res) => {
     // Build filter object - only show approved properties
     const filter = { approvalStatus: 'approved' };
     
-    // 🌐 WEBSITE FILTERING LOGIC
+    // 🌐 WEBSITE FILTERING LOGIC - SIMPLIFIED
     if (website === "cleartitle") {
-      // Cleartitle (parent) shows all properties
-      // No additional filter needed
+      // Cleartitle shows properties with "cleartitle" or "both" in websiteAssignment
+      filter.websiteAssignment = { $in: ["cleartitle", "both"] };
     } else if (website === "saimr") {
-      // Saimr (child) shows only properties assigned to it
-      filter.$or = [
-        { websiteAssignment: "both" },
-        { websiteAssignment: "saimr" },
-        // OR using boolean fields:
-        { visibleOnSaimr: true }
-      ];
-    } else if (website === "both") {
-      // Show properties available on both websites
-      filter.$or = [
-        { websiteAssignment: "both" },
-        { $and: [{ visibleOnCleartitle: true }, { visibleOnSaimr: true }] }
-      ];
+      // Saimr shows properties with "saimr" or "both" in websiteAssignment
+      filter.websiteAssignment = { $in: ["saimr", "both"] };
     }
     
     // Apply other filters
@@ -414,10 +403,10 @@ const getProperties = async (req, res) => {
     });
   }
 };
-
 // controllers/adminController.js
 
 // Assign properties to websites (bulk)
+// Assign properties to websites (bulk) - SIMPLIFIED
 const assignPropertiesToWebsites = async (req, res) => {
   try {
     const { propertyIds, websites, action } = req.body;
@@ -436,18 +425,52 @@ const assignPropertiesToWebsites = async (req, res) => {
       });
     }
 
+    // Validate websites are valid
+    const validWebsites = ["cleartitle", "saimr", "both"];
+    const invalidWebsites = websites.filter(w => !validWebsites.includes(w));
+    if (invalidWebsites.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid website(s): ${invalidWebsites.join(', ')}. Valid options: cleartitle, saimr, both`
+      });
+    }
+
     let updateQuery = {};
     
     // Determine update based on action
     if (action === "assign") {
-      // Add websites to assignment
-      updateQuery = { $addToSet: { websiteAssignment: { $each: websites } } };
+      // Add websites to assignment, but handle "both" specially
+      if (websites.includes("both")) {
+        // If assigning "both", set to ["both"]
+        updateQuery = { websiteAssignment: ["both"] };
+      } else {
+        // Add websites, but if adding both cleartitle and saimr, set to "both"
+        if (websites.includes("cleartitle") && websites.includes("saimr")) {
+          updateQuery = { websiteAssignment: ["both"] };
+        } else {
+          updateQuery = { $addToSet: { websiteAssignment: { $each: websites } } };
+        }
+      }
     } else if (action === "remove") {
       // Remove websites from assignment
-      updateQuery = { $pullAll: { websiteAssignment: websites } };
+      if (websites.includes("both")) {
+        // If removing "both", remove both websites
+        updateQuery = { 
+          $pull: { 
+            websiteAssignment: { $in: ["both", "cleartitle", "saimr"] } 
+          } 
+        };
+      } else {
+        updateQuery = { $pullAll: { websiteAssignment: websites } };
+      }
     } else if (action === "replace") {
       // Replace with new websites
-      updateQuery = { websiteAssignment: websites };
+      if (websites.includes("both") || (websites.includes("cleartitle") && websites.includes("saimr"))) {
+        // If both websites are selected, use "both"
+        updateQuery = { websiteAssignment: ["both"] };
+      } else {
+        updateQuery = { websiteAssignment: websites };
+      }
     } else {
       return res.status(400).json({
         success: false,
@@ -459,17 +482,6 @@ const assignPropertiesToWebsites = async (req, res) => {
     const result = await Property.updateMany(
       { _id: { $in: propertyIds } },
       updateQuery
-    );
-
-    // Also update boolean fields for backward compatibility
-    const booleanUpdate = {
-      visibleOnCleartitle: websites.includes("cleartitle"),
-      visibleOnSaimr: websites.includes("saimr")
-    };
-
-    await Property.updateMany(
-      { _id: { $in: propertyIds } },
-      { $set: booleanUpdate }
     );
 
     res.status(200).json({
@@ -492,11 +504,12 @@ const assignPropertiesToWebsites = async (req, res) => {
 };
 
 // Get properties with website assignment info for admin
+// Get properties with website assignment info for admin
 const getPropertiesForAdmin = async (req, res) => {
   try {
     const {
       page = 1,
-      limit = 50,
+      limit = 1000,
       search,
       website,
       approvalStatus
@@ -516,15 +529,17 @@ const getPropertiesForAdmin = async (req, res) => {
     // Website filter
     if (website) {
       if (website === "cleartitle") {
-        filter.visibleOnCleartitle = true;
+        filter.websiteAssignment = { $in: ["cleartitle", "both"] };
       } else if (website === "saimr") {
-        filter.visibleOnSaimr = true;
+        filter.websiteAssignment = { $in: ["saimr", "both"] };
       } else if (website === "unassigned") {
         filter.$or = [
           { websiteAssignment: { $exists: false } },
           { websiteAssignment: { $size: 0 } },
-          { $and: [{ visibleOnCleartitle: false }, { visibleOnSaimr: false }] }
+          { websiteAssignment: { $eq: [] } }
         ];
+      } else if (website === "both") {
+        filter.websiteAssignment = "both";
       }
     }
     
@@ -534,7 +549,7 @@ const getPropertiesForAdmin = async (req, res) => {
     }
 
     const properties = await Property.find(filter)
-      .select('title city category price approvalStatus websiteAssignment visibleOnCleartitle visibleOnSaimr isFeatured displayOrder createdAt')
+      .select('title city category price approvalStatus websiteAssignment isFeatured displayOrder createdAt images agentDetails.name')
       .populate('createdBy', 'name username')
       .sort({ displayOrder: 1, createdAt: -1 })
       .limit(limit * 1)
@@ -547,7 +562,12 @@ const getPropertiesForAdmin = async (req, res) => {
       properties,
       totalPages: Math.ceil(total / limit),
       currentPage: page,
-      total
+      total,
+      filters: {
+        website: website || 'all',
+        search: search || '',
+        approvalStatus: approvalStatus || 'all'
+      }
     });
   } catch (error) {
     console.error("Error fetching properties for admin:", error);

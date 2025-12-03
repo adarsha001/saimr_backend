@@ -47,8 +47,22 @@ const propertySchema = new mongoose.Schema(
     
 
     forSale: { type: Boolean, default: true },
-    isFeatured: { type: Boolean, default: false },
-    isVerified: { type: Boolean, default: false },
+       
+    websiteAssignment: {
+      type: [{
+        type: String,
+        enum: ["cleartitle", "saimr", "both"] // Keep "both" as a value
+      }],
+      default: ["cleartitle"], // All new properties default to cleartitle only
+      required: true,
+      validate: {
+        validator: function(v) {
+          // Don't allow duplicate values
+          return new Set(v).size === v.length;
+        },
+        message: "Website assignments must be unique"
+      }
+    },
     
     rejectionReason: { type: String, default: "" },
    
