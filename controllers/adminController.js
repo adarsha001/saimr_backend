@@ -552,10 +552,11 @@ exports.bulkUpdateProperties = async (req, res) => {
       });
     }
 
-    if (!['approvalStatus', 'isFeatured', 'isVerified', 'forSale', 'displayOrder'].includes(action)) {
+    // Add 'category' to the allowed actions
+    if (!['approvalStatus', 'isFeatured', 'isVerified', 'forSale', 'displayOrder', 'category'].includes(action)) {
       return res.status(400).json({ 
         success: false, 
-        message: "Invalid action" 
+        message: "Invalid action. Allowed: approvalStatus, isFeatured, isVerified, forSale, displayOrder, category" 
       });
     }
 
@@ -618,6 +619,42 @@ exports.bulkUpdateProperties = async (req, res) => {
       } else {
         const numValue = Number(value);
         updateData.displayOrder = isNaN(numValue) ? 0 : numValue; // Default to 0 if invalid
+      }
+    }
+    else if (action === 'category') {
+      // Handle category update
+      if (!value || value.trim() === '') {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Category value is required" 
+        });
+      }
+      
+      // Validate category value (add your valid categories here)
+      const validCategories = ['Residential', 'Commercial', 'Agricultural', 'Farm Land', 'JD/JV', 'Industrial', 'Plots'];
+      if (!validCategories.includes(value)) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `Invalid category. Allowed: ${validCategories.join(', ')}` 
+        });
+      }
+      
+      updateData.category = value;
+      
+      // IMPORTANT: When changing category, you might need to handle category-specific attributes
+      // For Commercial category, set a default expectedROI if not already set
+      if (value === 'Commercial') {
+        // You can set a default expectedROI or leave it to be handled by the frontend
+        // This prevents validation errors when category changes to Commercial
+        updateData.attributes = {
+          expectedROI: null // or set a default like 0
+        };
+      }
+      // For JD/JV category, set default typeOfJV
+      else if (value === 'JD/JV') {
+        updateData.attributes = {
+          typeOfJV: 'General Partnership'
+        };
       }
     }
 
