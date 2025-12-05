@@ -33,10 +33,36 @@ const verifyCaptcha = async (captchaToken) => {
 };
 
 // Google Sign-In verification
+// Google Sign-In verification - Fixed version
 const verifyGoogleToken = async (token) => {
   try {
+    console.log('Google token received (first 100 chars):', token?.substring?.(0, 100) || token);
+    
+    // Check if token is a valid string
+    if (!token || typeof token !== 'string') {
+      console.error('Invalid token type:', typeof token, 'token value:', token);
+      return {
+        success: false,
+        message: 'Invalid Google token format'
+      };
+    }
+    
+    // Clean the token (remove any extra characters)
+    const cleanToken = token.trim();
+    
+    // Check if token looks like a JWT (should have 3 parts separated by dots)
+    const tokenParts = cleanToken.split('.');
+    if (tokenParts.length !== 3) {
+      console.error('Invalid JWT format. Parts:', tokenParts.length);
+      return {
+        success: false,
+        message: 'Invalid Google token format'
+      };
+    }
+    
+    // Verify the token with Google
     const ticket = await googleClient.verifyIdToken({
-      idToken: token,
+      idToken: cleanToken,
       audience: process.env.GOOGLE_CLIENT_ID
     });
     
@@ -55,10 +81,23 @@ const verifyGoogleToken = async (token) => {
       }
     };
   } catch (error) {
-    console.error('Google token verification error:', error);
+    console.error('Google token verification error:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('Token type:', typeof token);
+    
+    // Provide more specific error messages
+    let errorMessage = 'Invalid Google token';
+    if (error.message.includes('jwt.split')) {
+      errorMessage = 'Invalid token format - not a valid JWT';
+    } else if (error.message.includes('Token used too late')) {
+      errorMessage = 'Token has expired. Please sign in again';
+    } else if (error.message.includes('Invalid audience')) {
+      errorMessage = 'Token audience mismatch. Check Google Client ID configuration';
+    }
+    
     return {
       success: false,
-      message: 'Invalid Google token'
+      message: errorMessage
     };
   }
 };
