@@ -435,20 +435,12 @@ const googleSignIn = async (req, res) => {
   try {
     const { token, userType, sourceWebsite = 'direct' } = req.body;
 
-    console.log('Google Sign-In attempt from:', sourceWebsite);
+    console.log('Google Sign-In attempt');
     
     if (!token) {
       return res.status(400).json({
         success: false,
         message: "Google token is required"
-      });
-    }
-
-    // Validate sourceWebsite if provided
-    if (sourceWebsite && !['saimgroups', 'cleartitle1', 'direct'].includes(sourceWebsite)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid source website"
       });
     }
 
@@ -473,7 +465,7 @@ const googleSignIn = async (req, res) => {
       });
     }
 
-    console.log('Google user verified:', payload.email, 'from website:', sourceWebsite);
+    console.log('Google user verified:', payload.email);
     
     // Check if user exists with this Google ID or email
     let user = await User.findOne({
@@ -500,35 +492,14 @@ const googleSignIn = async (req, res) => {
       }
       
       // Update user information
-      user.avatar = payload.picture;
+      user.avatar = payload.picture || user.avatar;
       user.emailVerified = true;
       user.lastLogin = new Date();
-      
-      // Update sourceWebsite if not already set
-      if (!user.sourceWebsite || user.sourceWebsite === 'direct') {
-        user.sourceWebsite = sourceWebsite;
-      }
-      
-      // Update individual website login tracking for Google sign-in
-      if (sourceWebsite === 'saimgroups' || sourceWebsite === 'cleartitle1') {
-        const websiteKey = sourceWebsite;
-        const now = new Date();
-        
-        // Initialize if first login to this website
-        if (!user.websiteLogins[websiteKey].hasLoggedIn) {
-          user.websiteLogins[websiteKey].hasLoggedIn = true;
-          user.websiteLogins[websiteKey].firstLogin = now;
-        }
-        
-        // Update tracking for this website
-        user.websiteLogins[websiteKey].lastLogin = now;
-        user.websiteLogins[websiteKey].loginCount += 1;
-      }
       
       await user.save();
       
     } else {
-      console.log('Creating new Google user for:', payload.email, 'from website:', sourceWebsite);
+      console.log('Creating new Google user for:', payload.email);
       
       // Create new user from Google data
       const baseUsername = payload.email.split('@')[0];
@@ -546,22 +517,6 @@ const googleSignIn = async (req, res) => {
       const firstName = nameParts[0] || 'User';
       const lastName = nameParts.slice(1).join(' ') || '';
       
-      // Initialize website logins based on source
-      const websiteLogins = {
-        saimgroups: {
-          hasLoggedIn: sourceWebsite === 'saimgroups',
-          firstLogin: sourceWebsite === 'saimgroups' ? new Date() : null,
-          lastLogin: sourceWebsite === 'saimgroups' ? new Date() : null,
-          loginCount: sourceWebsite === 'saimgroups' ? 1 : 0
-        },
-        cleartitle1: {
-          hasLoggedIn: sourceWebsite === 'cleartitle1',
-          firstLogin: sourceWebsite === 'cleartitle1' ? new Date() : null,
-          lastLogin: sourceWebsite === 'cleartitle1' ? new Date() : null,
-          loginCount: sourceWebsite === 'cleartitle1' ? 1 : 0
-        }
-      };
-      
       user = await User.create({
         googleId: payload.googleId,
         gmail: payload.email.toLowerCase(),
@@ -572,10 +527,8 @@ const googleSignIn = async (req, res) => {
         phoneNumber: '1234567890',
         isGoogleAuth: true,
         emailVerified: true,
-        avatar: payload.picture,
-        lastLogin: new Date(),
-        sourceWebsite: sourceWebsite,
-        websiteLogins: websiteLogins
+        avatar: payload.picture || '',
+        lastLogin: new Date()
       });
       
       console.log('New Google user created:', user.gmail);
@@ -599,15 +552,6 @@ const googleSignIn = async (req, res) => {
         isAdmin: user.isAdmin,
         isGoogleAuth: user.isGoogleAuth,
         avatar: user.avatar,
-        sourceWebsite: user.sourceWebsite,
-        // Include website login stats
-        websiteLogins: user.websiteLogins,
-        // Current website login info
-        currentWebsite: sourceWebsite,
-        hasLoggedInToCurrentWebsite: sourceWebsite === 'direct' ? null : 
-          user.websiteLogins[sourceWebsite]?.hasLoggedIn || false,
-        loginCountToCurrentWebsite: sourceWebsite === 'direct' ? null : 
-          user.websiteLogins[sourceWebsite]?.loginCount || 0,
         requiresPhoneUpdate: user.phoneNumber === '1234567890'
       }
     });
