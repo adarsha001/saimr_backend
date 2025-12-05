@@ -578,27 +578,9 @@ const getPostedProperties = async (req, res) => {
     const userId = req.user.id;
     const { status, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
 
-    // Build filter
-    const filter = { user: userId };
+    // Find user with basic info
+    const user = await User.findById(userId);
     
-    // Add status filter if provided
-    if (status && status !== 'all') {
-      filter.status = status;
-    }
-
-    // Build sort object
-    const sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-    // Find user and populate posted properties with detailed property info
-    const user = await User.findById(userId)
-      .populate({
-        path: 'postedProperties.property',
-        select: 'title price city category images propertyLocation attributes isVerified isFeatured approvalStatus rejectionReason createdAt updatedAt',
-        match: filter, // Apply filters to populated properties
-        options: { sort }
-      });
-
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -606,46 +588,57 @@ const getPostedProperties = async (req, res) => {
       });
     }
 
-    // Filter out null properties and format the response
-    const validPostedProperties = user.postedProperties.filter(
-      item => item.property && item.property._id
-    ).map(item => ({
-      _id: item.property._id,
-      title: item.property.title,
-      price: item.property.price,
-      city: item.property.city,
-      category: item.property.category,
-      images: item.property.images,
-      propertyLocation: item.property.propertyLocation,
-      attributes: item.property.attributes,
-      isVerified: item.property.isVerified,
-      isFeatured: item.property.isFeatured,
-      approvalStatus: item.property.approvalStatus,
-      rejectionReason: item.property.rejectionReason,
-      createdAt: item.property.createdAt,
-      updatedAt: item.property.updatedAt,
-      postedAt: item.postedAt,
-      status: item.status
-    }));
+    // Get property IDs from user's postedProperties
+    const propertyIds = user.postedProperties.map(item => item.property);
+
+    // Build filter for properties
+    const propertyFilter = { _id: { $in: propertyIds } };
+    
+    // Add status filter if provided
+    if (status && status !== 'all') {
+      propertyFilter.approvalStatus = status;
+    }
+
+    // Build sort object
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Find properties directly
+    const properties = await Property.find(propertyFilter)
+      .select('title price city category images propertyLocation attributes isVerified isFeatured approvalStatus rejectionReason createdAt updatedAt')
+      .sort(sort);
+
+    // Map properties with user-specific data (postedAt, status)
+    const postedProperties = properties.map(property => {
+      const userPropertyInfo = user.postedProperties.find(
+        item => item.property.toString() === property._id.toString()
+      );
+      
+      return {
+        ...property.toObject(),
+        postedAt: userPropertyInfo?.postedAt || property.createdAt,
+        status: userPropertyInfo?.status || 'active'
+      };
+    });
 
     // Calculate statistics
     const stats = {
-      total: validPostedProperties.length,
-      approved: validPostedProperties.filter(p => p.approvalStatus === 'approved').length,
-      pending: validPostedProperties.filter(p => p.approvalStatus === 'pending').length,
-      rejected: validPostedProperties.filter(p => p.approvalStatus === 'rejected').length,
-      active: validPostedProperties.filter(p => p.status === 'active').length,
-      sold: validPostedProperties.filter(p => p.status === 'sold').length,
-      rented: validPostedProperties.filter(p => p.status === 'rented').length,
-      expired: validPostedProperties.filter(p => p.status === 'expired').length,
-      draft: validPostedProperties.filter(p => p.status === 'draft').length
+      total: postedProperties.length,
+      approved: postedProperties.filter(p => p.approvalStatus === 'approved').length,
+      pending: postedProperties.filter(p => p.approvalStatus === 'pending').length,
+      rejected: postedProperties.filter(p => p.approvalStatus === 'rejected').length,
+      active: postedProperties.filter(p => p.status === 'active').length,
+      sold: postedProperties.filter(p => p.status === 'sold').length,
+      rented: postedProperties.filter(p => p.status === 'rented').length,
+      expired: postedProperties.filter(p => p.status === 'expired').length,
+      draft: postedProperties.filter(p => p.status === 'draft').length
     };
 
     res.json({
       success: true,
-      postedProperties: validPostedProperties,
+      postedProperties,
       stats,
-      count: validPostedProperties.length
+      count: postedProperties.length
     });
   } catch (error) {
     console.error('Error fetching posted properties:', error);
