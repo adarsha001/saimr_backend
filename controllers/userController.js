@@ -1,7 +1,7 @@
 // controllers/userController.js
 const User = require('../models/user');
 const Property = require('../models/property');
-const Enquiry = require('../models/Enquiry');
+const Enquiry = require('../models/enquiries');
 const cloudinary = require('../config/cloudinary');
 const fs = require('fs');
 
