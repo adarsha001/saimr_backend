@@ -278,18 +278,19 @@ const toggleLike = async (req, res) => {
 };
 
 // Get user's liked properties
+// controllers/likeController.js
 const getLikedProperties = async (req, res) => {
   try {
-    // Check if user exists on request
     if (!req.user || !req.user.id) {
       return res.status(401).json({
         success: false,
-        message: 'User not authenticated'
+        message: 'Authentication required'
       });
     }
 
     const userId = req.user.id;
 
+    // Find user and populate liked properties
     const user = await User.findById(userId)
       .populate({
         path: 'likedProperties.property',
@@ -303,14 +304,17 @@ const getLikedProperties = async (req, res) => {
       });
     }
 
-    // Filter out null properties (in case a property was deleted)
+    // Filter out null properties and only get approved properties
     const validLikedProperties = user.likedProperties.filter(
-      item => item.property !== null
+      item => item.property && 
+              item.property._id && 
+              item.property.approvalStatus === 'approved'
     );
 
     res.status(200).json({
       success: true,
-      likedProperties: validLikedProperties
+      likedProperties: validLikedProperties,
+      count: validLikedProperties.length
     });
   } catch (error) {
     console.error('Error in getLikedProperties:', error);

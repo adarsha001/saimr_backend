@@ -6,6 +6,7 @@ const cloudinary = require('../config/cloudinary');
 const fs = require('fs');
 
 // Get user profile
+// controllers/userController.js - getUserProfile function
 const getUserProfile = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -14,8 +15,7 @@ const getUserProfile = async (req, res) => {
       .select('-password')
       .populate({
         path: 'likedProperties.property',
-        match: { approvalStatus: 'approved' },
-        select: 'title price city category images propertyLocation attributes isVerified isFeatured createdAt'
+        select: 'title price city category images propertyLocation attributes isVerified isFeatured approvalStatus createdAt'
       })
       .populate({
         path: 'postedProperties.property',
@@ -29,17 +29,24 @@ const getUserProfile = async (req, res) => {
       });
     }
 
-    // Filter out null properties from liked properties
+    // Filter out null properties and only approved properties
     const validLikedProperties = user.likedProperties.filter(
-      item => item.property !== null && item.property.approvalStatus === 'approved'
+      item => item.property && 
+              item.property._id && 
+              item.property.approvalStatus === 'approved'
+    );
+
+    // Filter posted properties
+    const validPostedProperties = user.postedProperties.filter(
+      item => item.property && item.property._id
     );
 
     // Calculate property statistics
     const propertyStats = {
-      total: user.postedProperties.length,
-      approved: user.postedProperties.filter(p => p.property?.approvalStatus === 'approved').length,
-      pending: user.postedProperties.filter(p => p.property?.approvalStatus === 'pending').length,
-      rejected: user.postedProperties.filter(p => p.property?.approvalStatus === 'rejected').length
+      total: validPostedProperties.length,
+      approved: validPostedProperties.filter(p => p.property.approvalStatus === 'approved').length,
+      pending: validPostedProperties.filter(p => p.property.approvalStatus === 'pending').length,
+      rejected: validPostedProperties.filter(p => p.property.approvalStatus === 'rejected').length
     };
 
     res.json({
@@ -71,8 +78,8 @@ const getUserProfile = async (req, res) => {
         socialMedia: user.socialMedia,
         notifications: user.notifications,
         isVerified: user.isVerified,
-        likedProperties: validLikedProperties,
-        postedProperties: user.postedProperties,
+        likedProperties: validLikedProperties, // Use filtered liked properties
+        postedProperties: validPostedProperties, // Use filtered posted properties
         propertyStats,
         requiresPhoneUpdate: user.isGoogleAuth && user.phoneNumber === '1234567890',
         createdAt: user.createdAt,
