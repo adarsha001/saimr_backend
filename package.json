@@ -7,6 +7,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "geoip-lite": "^1.4.10",
+    "google-auth-library": "^10.5.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.19.2",
     "morgan": "^1.10.1",

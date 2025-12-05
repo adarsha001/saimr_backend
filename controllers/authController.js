@@ -1,16 +1,19 @@
 const User = require('../models/user');
-const axios = require('axios'); 
+const axios = require('axios');
+const { OAuth2Client } = require('google-auth-library');
+
+// Initialize Google OAuth client
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // reCAPTCHA v2 Verification Middleware
 const verifyCaptcha = async (captchaToken) => {
   try {
-    // For v2 verification
     const response = await axios.post(
       "https://www.google.com/recaptcha/api/siteverify",
       null,
       {
         params: {
-          secret: process.env.RECAPTCHA_SECRET_KEY, // Your Secret Key
+          secret: process.env.RECAPTCHA_SECRET_KEY,
           response: captchaToken
         }
       }
@@ -22,11 +25,41 @@ const verifyCaptcha = async (captchaToken) => {
       hostname: response.data.hostname
     });
     
-    // For v2, we only check success (no score)
     return response.data.success;
   } catch (error) {
     console.error("Captcha verification error:", error);
     return false;
+  }
+};
+
+// Google Sign-In verification
+const verifyGoogleToken = async (token) => {
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+    
+    const payload = ticket.getPayload();
+    
+    return {
+      success: true,
+      payload: {
+        googleId: payload.sub,
+        email: payload.email,
+        email_verified: payload.email_verified,
+        name: payload.name,
+        given_name: payload.given_name,
+        family_name: payload.family_name,
+        picture: payload.picture
+      }
+    };
+  } catch (error) {
+    console.error('Google token verification error:', error);
+    return {
+      success: false,
+      message: 'Invalid Google token'
+    };
   }
 };
 
@@ -82,7 +115,8 @@ const register = async (req, res) => {
       userType,
       phoneNumber,
       gmail,
-      password
+      password,
+      isGoogleAuth: false
     });
 
     // 4. Generate token
@@ -100,13 +134,14 @@ const register = async (req, res) => {
         userType: user.userType,
         phoneNumber: user.phoneNumber,
         gmail: user.gmail,
-        isAdmin: user.isAdmin
+        isAdmin: user.isAdmin,
+        isGoogleAuth: user.isGoogleAuth,
+        avatar: user.avatar
       }
     });
   } catch (error) {
     console.error("Registration error:", error);
     
-    // Handle specific Mongoose errors
     let errorMessage = "Error in registration";
     if (error.code === 11000) {
       errorMessage = "Username or email already exists";
@@ -121,7 +156,6 @@ const register = async (req, res) => {
     });
   }
 };
-
 
 // Login user
 const login = async (req, res) => {
@@ -151,6 +185,14 @@ const login = async (req, res) => {
       });
     }
 
+    // Check if user signed up with Google
+    if (user.isGoogleAuth) {
+      return res.status(400).json({
+        success: false,
+        message: 'This account uses Google Sign-In. Please sign in with Google.'
+      });
+    }
+
     // Check password
     const isMatch = await user.comparePassword(password);
 
@@ -176,7 +218,9 @@ const login = async (req, res) => {
         userType: user.userType,
         phoneNumber: user.phoneNumber,
         gmail: user.gmail,
-        isAdmin: user.isAdmin
+        isAdmin: user.isAdmin,
+        isGoogleAuth: user.isGoogleAuth,
+        avatar: user.avatar
       }
     });
   } catch (error) {
@@ -184,12 +228,236 @@ const login = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error in login',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Google Sign-In
+const googleSignIn = async (req, res) => {
+  try {
+    const { token, userType } = req.body;
+
+    console.log('Google Sign-In attempt received');
+    
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: "Google token is required"
+      });
+    }
+
+    // Verify Google token
+    const verification = await verifyGoogleToken(token);
+    
+    if (!verification.success) {
+      console.error('Google token verification failed:', verification.message);
+      return res.status(400).json({
+        success: false,
+        message: verification.message || "Google authentication failed"
+      });
+    }
+
+    const { payload } = verification;
+    
+    // Check if email is verified by Google
+    if (!payload.email_verified) {
+      return res.status(400).json({
+        success: false,
+        message: "Email not verified by Google"
+      });
+    }
+
+    console.log('Google user verified:', payload.email);
+    
+    // Check if user exists with this Google ID or email
+    let user = await User.findOne({
+      $or: [
+        { googleId: payload.googleId },
+        { gmail: payload.email.toLowerCase() }
+      ]
+    });
+
+    if (user) {
+      console.log('Existing user found:', user.gmail);
+      
+      // User exists, check authentication method
+      if (user.googleId !== payload.googleId) {
+        // Email exists but with different auth method
+        if (!user.isGoogleAuth) {
+          return res.status(400).json({
+            success: false,
+            message: "This email is already registered with password. Please use email/password login."
+          });
+        }
+        // Update Google ID if missing
+        user.googleId = payload.googleId;
+      }
+      
+      // Update user information
+      user.avatar = payload.picture;
+      user.emailVerified = true;
+      user.lastLogin = new Date();
+      await user.save();
+      
+    } else {
+      console.log('Creating new Google user for:', payload.email);
+      
+      // Create new user from Google data
+      // Generate username from email
+      const baseUsername = payload.email.split('@')[0];
+      let username = baseUsername;
+      let counter = 1;
+      
+      // Ensure unique username
+      while (await User.findOne({ username })) {
+        username = `${baseUsername}${counter}`;
+        counter++;
+      }
+      
+      // Split name into first and last name
+      const nameParts = payload.name ? payload.name.split(' ') : ['User', ''];
+      const firstName = nameParts[0] || 'User';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      
+      user = await User.create({
+        googleId: payload.googleId,
+        gmail: payload.email.toLowerCase(),
+        name: firstName,
+        lastName: lastName,
+        username: username,
+        userType: userType || 'buyer',
+        phoneNumber: '1234567890', // Dummy phone number
+        isGoogleAuth: true,
+        emailVerified: true,
+        avatar: payload.picture,
+        lastLogin: new Date()
+      });
+      
+      console.log('New Google user created:', user.gmail);
+    }
+
+    // Generate token
+    const authToken = user.getSignedJwtToken();
+
+    res.status(200).json({
+      success: true,
+      message: "Google sign-in successful",
+      token: authToken,
+      user: {
+        id: user._id,
+        username: user.username,
+        name: user.name,
+        lastName: user.lastName,
+        userType: user.userType,
+        phoneNumber: user.phoneNumber,
+        gmail: user.gmail,
+        isAdmin: user.isAdmin,
+        isGoogleAuth: user.isGoogleAuth,
+        avatar: user.avatar,
+        requiresPhoneUpdate: user.phoneNumber === '1234567890'
+      }
+    });
+  } catch (error) {
+    console.error('Google sign-in error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error in Google sign-in',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Update user profile (especially for Google users to update phone)
+const updateProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const updates = req.body;
+    
+    console.log('Updating profile for user:', userId);
+    
+    // Find user
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    // Remove fields that shouldn't be updated
+    delete updates.password;
+    delete updates.gmail;
+    delete updates.googleId;
+    delete updates.isGoogleAuth;
+    delete updates.isAdmin;
+    
+    // Update user
+    Object.keys(updates).forEach(key => {
+      user[key] = updates[key];
+    });
+    
+    await user.save();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: {
+        id: user._id,
+        username: user.username,
+        name: user.name,
+        lastName: user.lastName,
+        userType: user.userType,
+        phoneNumber: user.phoneNumber,
+        gmail: user.gmail,
+        isAdmin: user.isAdmin,
+        isGoogleAuth: user.isGoogleAuth,
+        avatar: user.avatar,
+        requiresPhoneUpdate: user.phoneNumber === '1234567890'
+      }
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Check if user needs to update phone number
+const checkPhoneUpdate = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    const user = await User.findById(userId).select('phoneNumber isGoogleAuth');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      requiresPhoneUpdate: user.isGoogleAuth && user.phoneNumber === '1234567890'
+    });
+  } catch (error) {
+    console.error('Check phone update error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error checking phone update status'
     });
   }
 };
 
 module.exports = {
   register,
-  login
+  login,
+  googleSignIn,
+  updateProfile,
+  checkPhoneUpdate
 };

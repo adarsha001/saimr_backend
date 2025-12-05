@@ -10,7 +10,7 @@ const userSchema = new mongoose.Schema({
     unique: true,
     trim: true,
     minlength: [3, 'Username must be at least 3 characters long'],
-    maxlength: [30, 'Username cannot exceed 30 characters']
+    maxlength: [40, 'Username cannot exceed 40 characters']
   },
   name: {
     type: String,
@@ -20,7 +20,6 @@ const userSchema = new mongoose.Schema({
   },
   lastName: {
     type: String,
-   
     trim: true,
     maxlength: [50, 'Last name cannot exceed 50 characters']
   },
@@ -38,6 +37,10 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Phone number is required'],
     validate: {
       validator: function(v) {
+        // Allow dummy numbers for Google sign-in users
+        if (this.isGoogleAuth && v === '1234567890') {
+          return true;
+        }
         return /^\+?[\d\s\-\(\)]{10,}$/.test(v);
       },
       message: 'Please provide a valid phone number'
@@ -63,10 +66,39 @@ const userSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: [true, 'Password is required'],
     minlength: [6, 'Password must be at least 6 characters long'],
-    select: false
+    select: false,
+    validate: {
+      validator: function(v) {
+        // Password is not required for Google auth users
+        if (this.isGoogleAuth) return true;
+        return v && v.length >= 6;
+      },
+      message: 'Password is required for non-Google sign-in users'
+    }
   },
+  
+  // Google OAuth Fields
+  googleId: {
+    type: String,
+    unique: true,
+    sparse: true // Allows null values while maintaining uniqueness
+  },
+  isGoogleAuth: {
+    type: Boolean,
+    default: false
+  },
+  avatar: {
+    type: String
+  },
+  emailVerified: {
+    type: Boolean,
+    default: false
+  },
+  lastLogin: {
+    type: Date
+  },
+  
   // Agent-specific fields
   company: {
     type: String,
@@ -115,15 +147,21 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Hash password before saving
+// Hash password before saving (only if password exists)
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 12);
+  if (this.password) {
+    this.password = await bcrypt.hash(this.password, 12);
+  }
   next();
 });
 
-// Compare password method
+// Compare password method (handles Google auth users)
 userSchema.methods.comparePassword = async function(candidatePassword) {
+  // Google auth users don't have passwords
+  if (this.isGoogleAuth) {
+    return false;
+  }
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
@@ -134,61 +172,12 @@ userSchema.methods.getSignedJwtToken = function() {
       id: this._id, 
       username: this.username, 
       userType: this.userType,
-      isAdmin: this.isAdmin 
+      isAdmin: this.isAdmin,
+      isGoogleAuth: this.isGoogleAuth
     },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRE }
   );
-};
-
-// Method to add a property to liked properties
-userSchema.methods.addToLikedProperties = function(propertyId) {
-  const alreadyLiked = this.likedProperties.some(
-    item => item.property.toString() === propertyId.toString()
-  );
-  
-  if (!alreadyLiked) {
-    this.likedProperties.push({ property: propertyId });
-    return this.save();
-  }
-  return Promise.resolve(this);
-};
-
-// Method to remove a property from liked properties
-userSchema.methods.removeFromLikedProperties = function(propertyId) {
-  this.likedProperties = this.likedProperties.filter(
-    item => item.property.toString() !== propertyId.toString()
-  );
-  return this.save();
-};
-
-// Method to add a property to posted properties
-userSchema.methods.addToPostedProperties = function(propertyId, status = 'active') {
-  const alreadyPosted = this.postedProperties.some(
-    item => item.property.toString() === propertyId.toString()
-  );
-  
-  if (!alreadyPosted) {
-    this.postedProperties.push({ 
-      property: propertyId, 
-      status: status 
-    });
-    return this.save();
-  }
-  return Promise.resolve(this);
-};
-
-// Method to update status of a posted property
-userSchema.methods.updatePostedPropertyStatus = function(propertyId, newStatus) {
-  const postedProperty = this.postedProperties.find(
-    item => item.property.toString() === propertyId.toString()
-  );
-  
-  if (postedProperty) {
-    postedProperty.status = newStatus;
-    return this.save();
-  }
-  return Promise.resolve(this);
 };
 
 module.exports = mongoose.model('User', userSchema);
