@@ -1,6 +1,7 @@
 const Property = require("../models/property");
 const upload = require("../middlewares/multer");
 const cloudinary = require("../config/cloudinary");
+const user = require("../models/user");
 
 // Create new property
 const createProperty = async (req, res) => {
@@ -210,7 +211,7 @@ const createProperty = async (req, res) => {
     // ============ ADDED: Update user's postedProperties array ============
     try {
       // Find the user and update their postedProperties array
-      const user = await User.findById(req.user._id);
+      const user = await user.findById(req.user._id);
       if (user) {
         // Check if property already exists in postedProperties (shouldn't, but just in case)
         const alreadyExists = user.postedProperties.some(
