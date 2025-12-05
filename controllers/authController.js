@@ -63,7 +63,124 @@ const verifyGoogleToken = async (token) => {
   }
 };
 
-// Register user
+const login = async (req, res) => {
+  try {
+    const { emailOrUsername, password, sourceWebsite = 'direct' } = req.body;
+    
+    console.log('Login attempt:', { emailOrUsername, sourceWebsite, body: req.body });
+
+    // Validate email/username and password
+    if (!emailOrUsername || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide email/username and password'
+      });
+    }
+
+    // Validate sourceWebsite if provided
+    if (sourceWebsite && !['saimgroups', 'cleartitle1', 'direct'].includes(sourceWebsite)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid source website"
+      });
+    }
+
+    // Find user by email or username
+    const user = await User.findOne({
+      $or: [
+        { gmail: emailOrUsername },
+        { username: emailOrUsername }
+      ]
+    }).select('+password');
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+
+    // Check if user signed up with Google
+    if (user.isGoogleAuth) {
+      return res.status(400).json({
+        success: false,
+        message: 'This account uses Google Sign-In. Please sign in with Google.'
+      });
+    }
+
+    // Check password
+    const isMatch = await user.comparePassword(password);
+
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+
+    // Update sourceWebsite if not already set (for existing users)
+    if (sourceWebsite !== 'direct' && (!user.sourceWebsite || user.sourceWebsite === 'direct')) {
+      user.sourceWebsite = sourceWebsite;
+    }
+
+    // Update individual website login tracking
+    if (sourceWebsite === 'saimgroups' || sourceWebsite === 'cleartitle1') {
+      const websiteKey = sourceWebsite;
+      const now = new Date();
+      
+      // Initialize if first login to this website
+      if (!user.websiteLogins[websiteKey].hasLoggedIn) {
+        user.websiteLogins[websiteKey].hasLoggedIn = true;
+        user.websiteLogins[websiteKey].firstLogin = now;
+      }
+      
+      // Update tracking for this website
+      user.websiteLogins[websiteKey].lastLogin = now;
+      user.websiteLogins[websiteKey].loginCount += 1;
+    }
+
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
+
+    // Generate token with website info
+    const token = user.getSignedJwtToken();
+
+    res.status(200).json({
+      success: true,
+      message: 'Login successful',
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        name: user.name,
+        lastName: user.lastName,
+        userType: user.userType,
+        phoneNumber: user.phoneNumber,
+        gmail: user.gmail,
+        isAdmin: user.isAdmin,
+        isGoogleAuth: user.isGoogleAuth,
+        avatar: user.avatar,
+        sourceWebsite: user.sourceWebsite,
+        // Include website login stats
+        websiteLogins: user.websiteLogins,
+        // Current website login info
+        currentWebsite: sourceWebsite,
+        hasLoggedInToCurrentWebsite: sourceWebsite === 'direct' ? null : 
+          user.websiteLogins[sourceWebsite]?.hasLoggedIn || false,
+        loginCountToCurrentWebsite: sourceWebsite === 'direct' ? null : 
+          user.websiteLogins[sourceWebsite]?.loginCount || 0
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error in login',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
 const register = async (req, res) => {
   try {
     const { 
@@ -75,10 +192,10 @@ const register = async (req, res) => {
       gmail, 
       password,
       captchaToken,
-      sourceWebsite = 'direct' // Add this parameter
+      sourceWebsite = 'direct'
     } = req.body;
 
-    console.log("Registration attempt for:", username);
+    console.log("Registration attempt for:", username, "from:", sourceWebsite);
 
     // Validate sourceWebsite if provided
     if (sourceWebsite && !['saimgroups', 'cleartitle1', 'direct'].includes(sourceWebsite)) {
@@ -116,7 +233,23 @@ const register = async (req, res) => {
       });
     }
 
-    // 3. Create user with sourceWebsite
+    // Initialize website logins based on registration source
+    const websiteLogins = {
+      saimgroups: {
+        hasLoggedIn: sourceWebsite === 'saimgroups',
+        firstLogin: sourceWebsite === 'saimgroups' ? new Date() : null,
+        lastLogin: sourceWebsite === 'saimgroups' ? new Date() : null,
+        loginCount: sourceWebsite === 'saimgroups' ? 1 : 0
+      },
+      cleartitle1: {
+        hasLoggedIn: sourceWebsite === 'cleartitle1',
+        firstLogin: sourceWebsite === 'cleartitle1' ? new Date() : null,
+        lastLogin: sourceWebsite === 'cleartitle1' ? new Date() : null,
+        loginCount: sourceWebsite === 'cleartitle1' ? 1 : 0
+      }
+    };
+
+    // 3. Create user with website tracking
     const user = await User.create({
       username,
       name,
@@ -126,7 +259,9 @@ const register = async (req, res) => {
       gmail,
       password,
       isGoogleAuth: false,
-      sourceWebsite // Add this field
+      sourceWebsite,
+      websiteLogins,
+      lastLogin: new Date() // Set last login on registration
     });
 
     // 4. Generate token
@@ -147,7 +282,11 @@ const register = async (req, res) => {
         isAdmin: user.isAdmin,
         isGoogleAuth: user.isGoogleAuth,
         avatar: user.avatar,
-        sourceWebsite: user.sourceWebsite // Include in response
+        sourceWebsite: user.sourceWebsite,
+        websiteLogins: user.websiteLogins,
+        currentWebsite: sourceWebsite,
+        hasLoggedInToCurrentWebsite: sourceWebsite === 'direct' ? null : true,
+        loginCountToCurrentWebsite: sourceWebsite === 'direct' ? null : 1
       }
     });
   } catch (error) {
@@ -163,235 +302,6 @@ const register = async (req, res) => {
     res.status(500).json({
       success: false,
       message: errorMessage,
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
-
-// Login user
-// Login user
-const login = async (req, res) => {
-  try {
-    const { emailOrUsername, password } = req.body;
-
-    // Validate email/username and password
-    if (!emailOrUsername || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide email/username and password'
-      });
-    }
-
-    // Find user by email or username
-    const user = await User.findOne({
-      $or: [
-        { gmail: emailOrUsername },
-        { username: emailOrUsername }
-      ]
-    }).select('+password');
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
-    }
-
-    // Check if user signed up with Google
-    if (user.isGoogleAuth) {
-      return res.status(400).json({
-        success: false,
-        message: 'This account uses Google Sign-In. Please sign in with Google.'
-      });
-    }
-
-    // Check password
-    const isMatch = await user.comparePassword(password);
-
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
-    }
-
-    // Generate token
-    const token = user.getSignedJwtToken();
-
-    res.status(200).json({
-      success: true,
-      message: 'Login successful',
-      token,
-      user: {
-        id: user._id,
-        username: user.username,
-        name: user.name,
-        lastName: user.lastName,
-        userType: user.userType,
-        phoneNumber: user.phoneNumber,
-        gmail: user.gmail,
-        isAdmin: user.isAdmin,
-        isGoogleAuth: user.isGoogleAuth,
-        avatar: user.avatar,
-        sourceWebsite: user.sourceWebsite // Include in response
-      }
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: 'Error in login',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
-
-// Google Sign-In
-const googleSignIn = async (req, res) => {
-  try {
-    const { token, userType, sourceWebsite = 'direct' } = req.body; // Add sourceWebsite parameter
-
-    console.log('Google Sign-In attempt received');
-    
-    if (!token) {
-      return res.status(400).json({
-        success: false,
-        message: "Google token is required"
-      });
-    }
-
-    // Validate sourceWebsite if provided
-    if (sourceWebsite && !['saimgroups', 'cleartitle1', 'direct'].includes(sourceWebsite)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid source website"
-      });
-    }
-
-    // Verify Google token
-    const verification = await verifyGoogleToken(token);
-    
-    if (!verification.success) {
-      console.error('Google token verification failed:', verification.message);
-      return res.status(400).json({
-        success: false,
-        message: verification.message || "Google authentication failed"
-      });
-    }
-
-    const { payload } = verification;
-    
-    // Check if email is verified by Google
-    if (!payload.email_verified) {
-      return res.status(400).json({
-        success: false,
-        message: "Email not verified by Google"
-      });
-    }
-
-    console.log('Google user verified:', payload.email, 'from website:', sourceWebsite);
-    
-    // Check if user exists with this Google ID or email
-    let user = await User.findOne({
-      $or: [
-        { googleId: payload.googleId },
-        { gmail: payload.email.toLowerCase() }
-      ]
-    });
-
-    if (user) {
-      console.log('Existing user found:', user.gmail);
-      
-      // User exists, check authentication method
-      if (user.googleId !== payload.googleId) {
-        // Email exists but with different auth method
-        if (!user.isGoogleAuth) {
-          return res.status(400).json({
-            success: false,
-            message: "This email is already registered with password. Please use email/password login."
-          });
-        }
-        // Update Google ID if missing
-        user.googleId = payload.googleId;
-      }
-      
-      // Update user information
-      user.avatar = payload.picture;
-      user.emailVerified = true;
-      user.lastLogin = new Date();
-      
-      // Update sourceWebsite if not already set (for existing users)
-      if (!user.sourceWebsite || user.sourceWebsite === 'direct') {
-        user.sourceWebsite = sourceWebsite;
-      }
-      
-      await user.save();
-      
-    } else {
-      console.log('Creating new Google user for:', payload.email, 'from website:', sourceWebsite);
-      
-      // Create new user from Google data
-      // Generate username from email
-      const baseUsername = payload.email.split('@')[0];
-      let username = baseUsername;
-      let counter = 1;
-      
-      // Ensure unique username
-      while (await User.findOne({ username })) {
-        username = `${baseUsername}${counter}`;
-        counter++;
-      }
-      
-      // Split name into first and last name
-      const nameParts = payload.name ? payload.name.split(' ') : ['User', ''];
-      const firstName = nameParts[0] || 'User';
-      const lastName = nameParts.slice(1).join(' ') || '';
-      
-      user = await User.create({
-        googleId: payload.googleId,
-        gmail: payload.email.toLowerCase(),
-        name: firstName,
-        lastName: lastName,
-        username: username,
-        userType: userType || 'buyer',
-        phoneNumber: '1234567890', // Dummy phone number
-        isGoogleAuth: true,
-        emailVerified: true,
-        avatar: payload.picture,
-        lastLogin: new Date(),
-        sourceWebsite: sourceWebsite // Add sourceWebsite for new users
-      });
-      
-      console.log('New Google user created:', user.gmail);
-    }
-
-    // Generate token
-    const authToken = user.getSignedJwtToken();
-
-    res.status(200).json({
-      success: true,
-      message: "Google sign-in successful",
-      token: authToken,
-      user: {
-        id: user._id,
-        username: user.username,
-        name: user.name,
-        lastName: user.lastName,
-        userType: user.userType,
-        phoneNumber: user.phoneNumber,
-        gmail: user.gmail,
-        isAdmin: user.isAdmin,
-        isGoogleAuth: user.isGoogleAuth,
-        avatar: user.avatar,
-        sourceWebsite: user.sourceWebsite, // Include in response
-        requiresPhoneUpdate: user.phoneNumber === '1234567890'
-      }
-    });
-  } catch (error) {
-    console.error('Google sign-in error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error in Google sign-in',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -479,6 +389,195 @@ const checkPhoneUpdate = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error checking phone update status'
+    });
+  }
+};
+const googleSignIn = async (req, res) => {
+  try {
+    const { token, userType, sourceWebsite = 'direct' } = req.body;
+
+    console.log('Google Sign-In attempt from:', sourceWebsite);
+    
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: "Google token is required"
+      });
+    }
+
+    // Validate sourceWebsite if provided
+    if (sourceWebsite && !['saimgroups', 'cleartitle1', 'direct'].includes(sourceWebsite)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid source website"
+      });
+    }
+
+    // Verify Google token
+    const verification = await verifyGoogleToken(token);
+    
+    if (!verification.success) {
+      console.error('Google token verification failed:', verification.message);
+      return res.status(400).json({
+        success: false,
+        message: verification.message || "Google authentication failed"
+      });
+    }
+
+    const { payload } = verification;
+    
+    // Check if email is verified by Google
+    if (!payload.email_verified) {
+      return res.status(400).json({
+        success: false,
+        message: "Email not verified by Google"
+      });
+    }
+
+    console.log('Google user verified:', payload.email, 'from website:', sourceWebsite);
+    
+    // Check if user exists with this Google ID or email
+    let user = await User.findOne({
+      $or: [
+        { googleId: payload.googleId },
+        { gmail: payload.email.toLowerCase() }
+      ]
+    });
+
+    if (user) {
+      console.log('Existing user found:', user.gmail);
+      
+      // User exists, check authentication method
+      if (user.googleId !== payload.googleId) {
+        // Email exists but with different auth method
+        if (!user.isGoogleAuth) {
+          return res.status(400).json({
+            success: false,
+            message: "This email is already registered with password. Please use email/password login."
+          });
+        }
+        // Update Google ID if missing
+        user.googleId = payload.googleId;
+      }
+      
+      // Update user information
+      user.avatar = payload.picture;
+      user.emailVerified = true;
+      user.lastLogin = new Date();
+      
+      // Update sourceWebsite if not already set
+      if (!user.sourceWebsite || user.sourceWebsite === 'direct') {
+        user.sourceWebsite = sourceWebsite;
+      }
+      
+      // Update individual website login tracking for Google sign-in
+      if (sourceWebsite === 'saimgroups' || sourceWebsite === 'cleartitle1') {
+        const websiteKey = sourceWebsite;
+        const now = new Date();
+        
+        // Initialize if first login to this website
+        if (!user.websiteLogins[websiteKey].hasLoggedIn) {
+          user.websiteLogins[websiteKey].hasLoggedIn = true;
+          user.websiteLogins[websiteKey].firstLogin = now;
+        }
+        
+        // Update tracking for this website
+        user.websiteLogins[websiteKey].lastLogin = now;
+        user.websiteLogins[websiteKey].loginCount += 1;
+      }
+      
+      await user.save();
+      
+    } else {
+      console.log('Creating new Google user for:', payload.email, 'from website:', sourceWebsite);
+      
+      // Create new user from Google data
+      const baseUsername = payload.email.split('@')[0];
+      let username = baseUsername;
+      let counter = 1;
+      
+      // Ensure unique username
+      while (await User.findOne({ username })) {
+        username = `${baseUsername}${counter}`;
+        counter++;
+      }
+      
+      // Split name into first and last name
+      const nameParts = payload.name ? payload.name.split(' ') : ['User', ''];
+      const firstName = nameParts[0] || 'User';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      
+      // Initialize website logins based on source
+      const websiteLogins = {
+        saimgroups: {
+          hasLoggedIn: sourceWebsite === 'saimgroups',
+          firstLogin: sourceWebsite === 'saimgroups' ? new Date() : null,
+          lastLogin: sourceWebsite === 'saimgroups' ? new Date() : null,
+          loginCount: sourceWebsite === 'saimgroups' ? 1 : 0
+        },
+        cleartitle1: {
+          hasLoggedIn: sourceWebsite === 'cleartitle1',
+          firstLogin: sourceWebsite === 'cleartitle1' ? new Date() : null,
+          lastLogin: sourceWebsite === 'cleartitle1' ? new Date() : null,
+          loginCount: sourceWebsite === 'cleartitle1' ? 1 : 0
+        }
+      };
+      
+      user = await User.create({
+        googleId: payload.googleId,
+        gmail: payload.email.toLowerCase(),
+        name: firstName,
+        lastName: lastName,
+        username: username,
+        userType: userType || 'buyer',
+        phoneNumber: '1234567890',
+        isGoogleAuth: true,
+        emailVerified: true,
+        avatar: payload.picture,
+        lastLogin: new Date(),
+        sourceWebsite: sourceWebsite,
+        websiteLogins: websiteLogins
+      });
+      
+      console.log('New Google user created:', user.gmail);
+    }
+
+    // Generate token
+    const authToken = user.getSignedJwtToken();
+
+    res.status(200).json({
+      success: true,
+      message: "Google sign-in successful",
+      token: authToken,
+      user: {
+        id: user._id,
+        username: user.username,
+        name: user.name,
+        lastName: user.lastName,
+        userType: user.userType,
+        phoneNumber: user.phoneNumber,
+        gmail: user.gmail,
+        isAdmin: user.isAdmin,
+        isGoogleAuth: user.isGoogleAuth,
+        avatar: user.avatar,
+        sourceWebsite: user.sourceWebsite,
+        // Include website login stats
+        websiteLogins: user.websiteLogins,
+        // Current website login info
+        currentWebsite: sourceWebsite,
+        hasLoggedInToCurrentWebsite: sourceWebsite === 'direct' ? null : 
+          user.websiteLogins[sourceWebsite]?.hasLoggedIn || false,
+        loginCountToCurrentWebsite: sourceWebsite === 'direct' ? null : 
+          user.websiteLogins[sourceWebsite]?.loginCount || 0,
+        requiresPhoneUpdate: user.phoneNumber === '1234567890'
+      }
+    });
+  } catch (error) {
+    console.error('Google sign-in error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error in Google sign-in',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

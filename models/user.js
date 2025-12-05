@@ -170,7 +170,28 @@ const userSchema = new mongoose.Schema({
       default: Date.now
     }
   }],
-  
+  sourceWebsite: {
+    type: String,
+    enum: ['saimgroups', 'cleartitle1', 'direct'],
+    default: 'direct'
+  },
+
+  // Individual website login tracking
+  websiteLogins: {
+    saimgroups: {
+      hasLoggedIn: { type: Boolean, default: false },
+      firstLogin: { type: Date },
+      lastLogin: { type: Date },
+      loginCount: { type: Number, default: 0 }
+    },
+    cleartitle1: {
+      hasLoggedIn: { type: Boolean, default: false },
+      firstLogin: { type: Date },
+      lastLogin: { type: Date },
+      loginCount: { type: Number, default: 0 }
+    }
+  },
+
   // Array of properties posted by the user
   postedProperties: [{
     property: {
