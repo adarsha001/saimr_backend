@@ -74,10 +74,19 @@ const register = async (req, res) => {
       phoneNumber, 
       gmail, 
       password,
-      captchaToken 
+      captchaToken,
+      sourceWebsite = 'direct' // Add this parameter
     } = req.body;
 
     console.log("Registration attempt for:", username);
+
+    // Validate sourceWebsite if provided
+    if (sourceWebsite && !['saimgroups', 'cleartitle1', 'direct'].includes(sourceWebsite)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid source website"
+      });
+    }
 
     // 1. Verify CAPTCHA first
     if (!captchaToken) {
@@ -107,7 +116,7 @@ const register = async (req, res) => {
       });
     }
 
-    // 3. Create user
+    // 3. Create user with sourceWebsite
     const user = await User.create({
       username,
       name,
@@ -116,7 +125,8 @@ const register = async (req, res) => {
       phoneNumber,
       gmail,
       password,
-      isGoogleAuth: false
+      isGoogleAuth: false,
+      sourceWebsite // Add this field
     });
 
     // 4. Generate token
@@ -136,7 +146,8 @@ const register = async (req, res) => {
         gmail: user.gmail,
         isAdmin: user.isAdmin,
         isGoogleAuth: user.isGoogleAuth,
-        avatar: user.avatar
+        avatar: user.avatar,
+        sourceWebsite: user.sourceWebsite // Include in response
       }
     });
   } catch (error) {
@@ -157,6 +168,7 @@ const register = async (req, res) => {
   }
 };
 
+// Login user
 // Login user
 const login = async (req, res) => {
   try {
@@ -220,7 +232,8 @@ const login = async (req, res) => {
         gmail: user.gmail,
         isAdmin: user.isAdmin,
         isGoogleAuth: user.isGoogleAuth,
-        avatar: user.avatar
+        avatar: user.avatar,
+        sourceWebsite: user.sourceWebsite // Include in response
       }
     });
   } catch (error) {
@@ -236,7 +249,7 @@ const login = async (req, res) => {
 // Google Sign-In
 const googleSignIn = async (req, res) => {
   try {
-    const { token, userType } = req.body;
+    const { token, userType, sourceWebsite = 'direct' } = req.body; // Add sourceWebsite parameter
 
     console.log('Google Sign-In attempt received');
     
@@ -244,6 +257,14 @@ const googleSignIn = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Google token is required"
+      });
+    }
+
+    // Validate sourceWebsite if provided
+    if (sourceWebsite && !['saimgroups', 'cleartitle1', 'direct'].includes(sourceWebsite)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid source website"
       });
     }
 
@@ -268,7 +289,7 @@ const googleSignIn = async (req, res) => {
       });
     }
 
-    console.log('Google user verified:', payload.email);
+    console.log('Google user verified:', payload.email, 'from website:', sourceWebsite);
     
     // Check if user exists with this Google ID or email
     let user = await User.findOne({
@@ -298,10 +319,16 @@ const googleSignIn = async (req, res) => {
       user.avatar = payload.picture;
       user.emailVerified = true;
       user.lastLogin = new Date();
+      
+      // Update sourceWebsite if not already set (for existing users)
+      if (!user.sourceWebsite || user.sourceWebsite === 'direct') {
+        user.sourceWebsite = sourceWebsite;
+      }
+      
       await user.save();
       
     } else {
-      console.log('Creating new Google user for:', payload.email);
+      console.log('Creating new Google user for:', payload.email, 'from website:', sourceWebsite);
       
       // Create new user from Google data
       // Generate username from email
@@ -331,7 +358,8 @@ const googleSignIn = async (req, res) => {
         isGoogleAuth: true,
         emailVerified: true,
         avatar: payload.picture,
-        lastLogin: new Date()
+        lastLogin: new Date(),
+        sourceWebsite: sourceWebsite // Add sourceWebsite for new users
       });
       
       console.log('New Google user created:', user.gmail);
@@ -355,6 +383,7 @@ const googleSignIn = async (req, res) => {
         isAdmin: user.isAdmin,
         isGoogleAuth: user.isGoogleAuth,
         avatar: user.avatar,
+        sourceWebsite: user.sourceWebsite, // Include in response
         requiresPhoneUpdate: user.phoneNumber === '1234567890'
       }
     });

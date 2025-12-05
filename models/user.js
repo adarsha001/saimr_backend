@@ -237,7 +237,7 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// Generate JWT token
+// In User model methods - Update if you want sourceWebsite in token
 userSchema.methods.getSignedJwtToken = function() {
   return jwt.sign(
     { 
@@ -245,7 +245,8 @@ userSchema.methods.getSignedJwtToken = function() {
       username: this.username, 
       userType: this.userType,
       isAdmin: this.isAdmin,
-      isGoogleAuth: this.isGoogleAuth
+      isGoogleAuth: this.isGoogleAuth,
+      sourceWebsite: this.sourceWebsite // Optional: Add to token
     },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRE }

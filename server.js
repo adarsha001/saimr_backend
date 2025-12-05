@@ -4,6 +4,7 @@ const dotenv = require("dotenv");
 const cors = require("cors");
 const propertyRoutes = require("./routes/propertyRoutes");
 const agentRoutes = require("./routes/agentroute");
+const Property = require("./models/property");
 dotenv.config();
 
 const app = express();
@@ -29,7 +30,8 @@ app.use(cors({
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true
 }));
-
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.json({ limit: "10mb" }));
 app.use('/robots.txt', express.static('public/robots.txt'));
 app.use('/sitemap.xml', express.static('public/sitemap.xml'));
@@ -139,3 +141,6 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌐 Allowed origins: ${allowedOrigins.join(', ')}`);
 });
+
+
+

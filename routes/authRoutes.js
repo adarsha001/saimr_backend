@@ -10,6 +10,8 @@ const {
 const { createEnquiry } = require('../controllers/enquiryController');
 const { protect } = require('../middleware/authMiddleware');
 // Public routes
+const detectWebsite = require('../middleware/detectWebsite');
+router.use(detectWebsite);
 router.post('/register', register);
 router.post('/login', login);
 router.post('/google', googleSignIn);
