@@ -18,6 +18,8 @@ const {
   patchProperty,
   getHourlyDistribution,
   getPropertyById,
+  getWebsiteUserStats,
+  getUsersByWebsite,
 } = require('../controllers/adminController');
 
 const {
@@ -101,7 +103,8 @@ router.get('/properties/:id', getPropertyById);
 // User management routes
 router.get('/users', getAllUsersWithLikes);
 router.get('/users/:id', getUserById);
-
+router.get('/stats/website', getWebsiteUserStats);
+router.get('/website/:website', getUsersByWebsite);
 // ==================== ANALYTICS ROUTES ====================
 
 // Analytics routes

@@ -211,7 +211,7 @@ exports.getAllUsersWithLikes = async (req, res) => {
   try {
     console.log('🔍 Fetching all users with liked properties');
     
-    const { page = 1, limit = 10, search } = req.query;
+    const { page = 1, limit = 10, search, sourceWebsite } = req.query;
 
     // Build filter object
     const filter = {};
@@ -222,6 +222,11 @@ exports.getAllUsersWithLikes = async (req, res) => {
         { gmail: { $regex: search, $options: 'i' } },
         { userType: { $regex: search, $options: 'i' } }
       ];
+    }
+
+    // Filter by source website if provided
+    if (sourceWebsite && ['saimgroups', 'cleartitle1', 'direct'].includes(sourceWebsite)) {
+      filter.sourceWebsite = sourceWebsite;
     }
 
     const users = await User.find(filter)
@@ -245,7 +250,7 @@ exports.getAllUsersWithLikes = async (req, res) => {
 
     const total = await User.countDocuments(filter);
 
-    // Transform the data to include counts and relevant information
+    // Transform the data to include all user details
     const transformedUsers = users.map(user => ({
       _id: user._id,
       username: user.username,
@@ -255,8 +260,54 @@ exports.getAllUsersWithLikes = async (req, res) => {
       isAdmin: user.isAdmin,
       gmail: user.gmail,
       phoneNumber: user.phoneNumber,
+      alternativePhoneNumber: user.alternativePhoneNumber,
+      
+      // Google Auth Fields
+      googleId: user.googleId,
+      isGoogleAuth: user.isGoogleAuth,
+      avatar: user.avatar,
+      emailVerified: user.emailVerified,
+      lastLogin: user.lastLogin,
+      
+      // Business Information
+      company: user.company,
+      languages: user.languages,
+      officeAddress: user.officeAddress,
+      
+      // Personal Information
+      dateOfBirth: user.dateOfBirth,
+      occupation: user.occupation,
+      preferredLocation: user.preferredLocation,
+      
+      // Contact Preferences
+      contactPreferences: user.contactPreferences,
+      
+      // Professional Details
+      specialization: user.specialization,
+      website: user.website,
+      socialMedia: user.socialMedia,
+      
+      // Website Tracking Information
+      sourceWebsite: user.sourceWebsite,
+      websiteLogins: user.websiteLogins,
+      
+      // Multi-website user flag
+      isMultiWebsiteUser: user.websiteLogins?.saimgroups?.hasLoggedIn && 
+                          user.websiteLogins?.cleartitle1?.hasLoggedIn,
+      
+      // Website login stats
+      saimgroupsLoginCount: user.websiteLogins?.saimgroups?.loginCount || 0,
+      cleartitle1LoginCount: user.websiteLogins?.cleartitle1?.loginCount || 0,
+      saimgroupsFirstLogin: user.websiteLogins?.saimgroups?.firstLogin,
+      saimgroupsLastLogin: user.websiteLogins?.saimgroups?.lastLogin,
+      cleartitle1FirstLogin: user.websiteLogins?.cleartitle1?.firstLogin,
+      cleartitle1LastLogin: user.websiteLogins?.cleartitle1?.lastLogin,
+      
+      // Property Statistics
       likedPropertiesCount: user.likedProperties.length,
       postedPropertiesCount: user.postedProperties.length,
+      
+      // Detailed Property Information
       likedProperties: user.likedProperties.map(like => ({
         _id: like.property?._id,
         title: like.property?.title,
@@ -269,6 +320,7 @@ exports.getAllUsersWithLikes = async (req, res) => {
         likedAt: like.likedAt,
         createdBy: like.property?.createdBy
       })).filter(like => like._id), // Filter out null properties
+      
       postedProperties: user.postedProperties.map(post => ({
         _id: post.property?._id,
         title: post.property?.title,
@@ -279,6 +331,18 @@ exports.getAllUsersWithLikes = async (req, res) => {
         postedAt: post.postedAt,
         status: post.status
       })).filter(post => post._id), // Filter out null properties
+      
+      // Settings and Preferences
+      notifications: user.notifications,
+      
+      // Verification
+      isVerified: user.isVerified,
+      verificationDate: user.verificationDate,
+      
+      // Additional Info
+      about: user.about,
+      interests: user.interests,
+      
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
     }));
@@ -288,7 +352,16 @@ exports.getAllUsersWithLikes = async (req, res) => {
       users: transformedUsers,
       totalPages: Math.ceil(total / limit),
       currentPage: parseInt(page),
-      total
+      total,
+      websiteStats: {
+        saimgroups: await User.countDocuments({ sourceWebsite: 'saimgroups' }),
+        cleartitle1: await User.countDocuments({ sourceWebsite: 'cleartitle1' }),
+        direct: await User.countDocuments({ sourceWebsite: 'direct' }),
+        multiWebsite: await User.countDocuments({
+          'websiteLogins.saimgroups.hasLoggedIn': true,
+          'websiteLogins.cleartitle1.hasLoggedIn': true
+        })
+      }
     });
   } catch (error) {
     console.error('❌ Error fetching users with likes:', error);
@@ -300,7 +373,6 @@ exports.getAllUsersWithLikes = async (req, res) => {
   }
 };
 
-// ✅ Get user details by ID with full property information
 exports.getUserById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -341,23 +413,81 @@ exports.getUserById = async (req, res) => {
     res.status(200).json({
       success: true,
       user: {
+        // Basic Info
         _id: user._id,
         username: user.username,
         name: user.name,
         lastName: user.lastName,
         userType: user.userType,
         isAdmin: user.isAdmin,
+        
+        // Contact Info
         gmail: user.gmail,
         phoneNumber: user.phoneNumber,
+        alternativePhoneNumber: user.alternativePhoneNumber,
+        
+        // Google Auth Info
+        googleId: user.googleId,
+        isGoogleAuth: user.isGoogleAuth,
+        avatar: user.avatar,
+        emailVerified: user.emailVerified,
+        lastLogin: user.lastLogin,
+        
+        // Business Information
+        company: user.company,
+        languages: user.languages,
+        officeAddress: user.officeAddress,
+        
+        // Personal Information
+        dateOfBirth: user.dateOfBirth,
+        occupation: user.occupation,
+        preferredLocation: user.preferredLocation,
+        
+        // Contact Preferences
+        contactPreferences: user.contactPreferences,
+        
+        // Professional Details
+        specialization: user.specialization,
+        website: user.website,
+        socialMedia: user.socialMedia,
+        
+        // Website Tracking Information
+        sourceWebsite: user.sourceWebsite,
+        websiteLogins: user.websiteLogins,
+        
+        // Website login summary
+        isMultiWebsiteUser: user.websiteLogins?.saimgroups?.hasLoggedIn && 
+                           user.websiteLogins?.cleartitle1?.hasLoggedIn,
+        hasLoggedIntoSaimgroups: user.websiteLogins?.saimgroups?.hasLoggedIn || false,
+        hasLoggedIntoCleartitle1: user.websiteLogins?.cleartitle1?.hasLoggedIn || false,
+        
+        // Property Information
+        likedPropertiesCount: user.likedProperties.length,
+        postedPropertiesCount: user.postedProperties.length,
+        
         likedProperties: user.likedProperties.map(like => ({
           ...like.property?.toObject(),
           likedAt: like.likedAt
         })).filter(like => like._id),
+        
         postedProperties: user.postedProperties.map(post => ({
           ...post.property?.toObject(),
           postedAt: post.postedAt,
           status: post.status
         })).filter(post => post._id),
+        
+        // Settings and Preferences
+        notifications: user.notifications,
+        
+        // Verification
+        isVerified: user.isVerified,
+        verificationDate: user.verificationDate,
+        
+        // Additional Info
+        about: user.about,
+        interests: user.interests,
+        
+        // Timestamps
         createdAt: user.createdAt,
         updatedAt: user.updatedAt
       }
@@ -368,6 +498,184 @@ exports.getUserById = async (req, res) => {
       success: false, 
       message: "Error fetching user details",
       error: error.message 
+    });
+  }
+};
+
+exports.getWebsiteUserStats = async (req, res) => {
+  try {
+    console.log('📊 Fetching website user statistics');
+    
+    const stats = await User.aggregate([
+      {
+        $facet: {
+          // Total users by source website
+          sourceWebsiteStats: [
+            {
+              $group: {
+                _id: '$sourceWebsite',
+                count: { $sum: 1 }
+              }
+            }
+          ],
+          
+          // Multi-website users
+          multiWebsiteStats: [
+            {
+              $match: {
+                'websiteLogins.saimgroups.hasLoggedIn': true,
+                'websiteLogins.cleartitle1.hasLoggedIn': true
+              }
+            },
+            {
+              $group: {
+                _id: null,
+                count: { $sum: 1 }
+              }
+            }
+          ],
+          
+          // User types distribution
+          userTypeStats: [
+            {
+              $group: {
+                _id: '$userType',
+                count: { $sum: 1 }
+              }
+            }
+          ],
+          
+          // Active users (logged in last 30 days)
+          activeUsers: [
+            {
+              $match: {
+                lastLogin: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+              }
+            },
+            {
+              $group: {
+                _id: '$sourceWebsite',
+                count: { $sum: 1 }
+              }
+            }
+          ],
+          
+          // New users this month
+          newUsersThisMonth: [
+            {
+              $match: {
+                createdAt: { $gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) }
+              }
+            },
+            {
+              $group: {
+                _id: '$sourceWebsite',
+                count: { $sum: 1 }
+              }
+            }
+          ],
+          
+          // Google vs Email users
+          authTypeStats: [
+            {
+              $group: {
+                _id: { 
+                  sourceWebsite: '$sourceWebsite',
+                  isGoogleAuth: '$isGoogleAuth'
+                },
+                count: { $sum: 1 }
+              }
+            }
+          ]
+        }
+      }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      stats: {
+        sourceWebsite: stats[0].sourceWebsiteStats.reduce((acc, curr) => {
+          acc[curr._id] = curr.count;
+          return acc;
+        }, {}),
+        multiWebsiteUsers: stats[0].multiWebsiteStats[0]?.count || 0,
+        userTypes: stats[0].userTypeStats.reduce((acc, curr) => {
+          acc[curr._id] = curr.count;
+          return acc;
+        }, {}),
+        activeUsers: stats[0].activeUsers.reduce((acc, curr) => {
+          acc[curr._id] = curr.count;
+          return acc;
+        }, {}),
+        newUsersThisMonth: stats[0].newUsersThisMonth.reduce((acc, curr) => {
+          acc[curr._id] = curr.count;
+          return acc;
+        }, {}),
+        authTypes: stats[0].authTypeStats.reduce((acc, curr) => {
+          if (!acc[curr._id.sourceWebsite]) {
+            acc[curr._id.sourceWebsite] = { google: 0, email: 0 };
+          }
+          if (curr._id.isGoogleAuth) {
+            acc[curr._id.sourceWebsite].google = curr.count;
+          } else {
+            acc[curr._id.sourceWebsite].email = curr.count;
+          }
+          return acc;
+        }, {}),
+        totalUsers: await User.countDocuments()
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error fetching website stats:', error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching website statistics",
+      error: error.message
+    });
+  }
+};
+
+exports.getUsersByWebsite = async (req, res) => {
+  try {
+    const { website } = req.params;
+    const { page = 1, limit = 20 } = req.query;
+
+    if (!['saimgroups', 'cleartitle1'].includes(website)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid website. Use 'saimgroups' or 'cleartitle1'"
+      });
+    }
+
+    const filter = {
+      $or: [
+        { sourceWebsite: website },
+        { [`websiteLogins.${website}.hasLoggedIn`]: true }
+      ]
+    };
+
+    const users = await User.find(filter)
+      .select('_id username name lastName gmail userType sourceWebsite isGoogleAuth lastLogin createdAt')
+      .sort({ lastLogin: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await User.countDocuments(filter);
+
+    res.status(200).json({
+      success: true,
+      website,
+      users,
+      totalPages: Math.ceil(total / limit),
+      currentPage: parseInt(page),
+      total
+    });
+  } catch (error) {
+    console.error(`❌ Error fetching ${website} users:`, error);
+    res.status(500).json({
+      success: false,
+      message: `Error fetching ${website} users`,
+      error: error.message
     });
   }
 };
