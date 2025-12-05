@@ -326,6 +326,8 @@ const getLikedProperties = async (req, res) => {
   }
 };
 
+
+
 module.exports = {
   likeProperty,
   unlikeProperty,

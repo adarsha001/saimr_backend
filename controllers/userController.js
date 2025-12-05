@@ -96,6 +96,8 @@ const getUserProfile = async (req, res) => {
   }
 };
 
+// Get user's posted properties with filtering options
+
 // Update user profile
 const updateUserProfile = async (req, res) => {
   try {
@@ -443,13 +445,38 @@ const getUserEnquiries = async (req, res) => {
   try {
     const userId = req.user.id;
 
+    // Find enquiries for the user
     const enquiries = await Enquiry.find({ user: userId })
-      .populate('property', 'title')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 }); // Removed populate since no property field exists
+
+    // Format the enquiries for response
+    const formattedEnquiries = enquiries.map(enquiry => ({
+      _id: enquiry._id,
+      name: enquiry.name,
+      phoneNumber: enquiry.phoneNumber,
+      message: enquiry.message,
+      status: enquiry.status,
+      createdAt: enquiry.createdAt,
+      updatedAt: enquiry.updatedAt,
+      // Add formatted phone number
+      formattedPhone: enquiry.phoneNumber.replace(/\D/g, '').length === 10 
+        ? `${enquiry.phoneNumber.replace(/\D/g, '').slice(0, 5)}-${enquiry.phoneNumber.replace(/\D/g, '').slice(5)}`
+        : enquiry.phoneNumber,
+      // Add status badge class (for frontend)
+      statusBadge: getStatusBadge(enquiry.status)
+    }));
 
     res.json({
       success: true,
-      enquiries
+      enquiries: formattedEnquiries,
+      count: enquiries.length,
+      stats: {
+        total: enquiries.length,
+        new: enquiries.filter(e => e.status === 'new').length,
+        inProgress: enquiries.filter(e => e.status === 'in-progress').length,
+        resolved: enquiries.filter(e => e.status === 'resolved').length,
+        closed: enquiries.filter(e => e.status === 'closed').length
+      }
     });
   } catch (error) {
     console.error('Error fetching user enquiries:', error);
@@ -459,6 +486,17 @@ const getUserEnquiries = async (req, res) => {
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
+};
+
+// Helper function for status badges
+const getStatusBadge = (status) => {
+  const statusColors = {
+    'new': 'bg-blue-100 text-blue-800 border border-blue-200',
+    'in-progress': 'bg-yellow-100 text-yellow-800 border border-yellow-200',
+    'resolved': 'bg-green-100 text-green-800 border border-green-200',
+    'closed': 'bg-gray-100 text-gray-800 border border-gray-200'
+  };
+  return statusColors[status] || 'bg-gray-100 text-gray-800 border border-gray-200';
 };
 
 // Delete user account
@@ -535,20 +573,79 @@ const getLikedProperties = async (req, res) => {
   }
 };
 
-// Get only posted properties with approval status
 const getPostedProperties = async (req, res) => {
   try {
     const userId = req.user.id;
+    const { status, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
 
+    // Build filter
+    const filter = { user: userId };
+    
+    // Add status filter if provided
+    if (status && status !== 'all') {
+      filter.status = status;
+    }
+
+    // Build sort object
+    const sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Find user and populate posted properties with detailed property info
     const user = await User.findById(userId)
       .populate({
         path: 'postedProperties.property',
-        select: 'title price city category images propertyLocation attributes isVerified isFeatured approvalStatus rejectionReason createdAt'
+        select: 'title price city category images propertyLocation attributes isVerified isFeatured approvalStatus rejectionReason createdAt updatedAt',
+        match: filter, // Apply filters to populated properties
+        options: { sort }
       });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Filter out null properties and format the response
+    const validPostedProperties = user.postedProperties.filter(
+      item => item.property && item.property._id
+    ).map(item => ({
+      _id: item.property._id,
+      title: item.property.title,
+      price: item.property.price,
+      city: item.property.city,
+      category: item.property.category,
+      images: item.property.images,
+      propertyLocation: item.property.propertyLocation,
+      attributes: item.property.attributes,
+      isVerified: item.property.isVerified,
+      isFeatured: item.property.isFeatured,
+      approvalStatus: item.property.approvalStatus,
+      rejectionReason: item.property.rejectionReason,
+      createdAt: item.property.createdAt,
+      updatedAt: item.property.updatedAt,
+      postedAt: item.postedAt,
+      status: item.status
+    }));
+
+    // Calculate statistics
+    const stats = {
+      total: validPostedProperties.length,
+      approved: validPostedProperties.filter(p => p.approvalStatus === 'approved').length,
+      pending: validPostedProperties.filter(p => p.approvalStatus === 'pending').length,
+      rejected: validPostedProperties.filter(p => p.approvalStatus === 'rejected').length,
+      active: validPostedProperties.filter(p => p.status === 'active').length,
+      sold: validPostedProperties.filter(p => p.status === 'sold').length,
+      rented: validPostedProperties.filter(p => p.status === 'rented').length,
+      expired: validPostedProperties.filter(p => p.status === 'expired').length,
+      draft: validPostedProperties.filter(p => p.status === 'draft').length
+    };
 
     res.json({
       success: true,
-      postedProperties: user.postedProperties
+      postedProperties: validPostedProperties,
+      stats,
+      count: validPostedProperties.length
     });
   } catch (error) {
     console.error('Error fetching posted properties:', error);
@@ -560,6 +657,9 @@ const getPostedProperties = async (req, res) => {
   }
 };
 
+
+
+
 module.exports = {
   getUserProfile,
   getUserEnquiries,
@@ -567,5 +667,5 @@ module.exports = {
   deleteUserAccount,
   getLikedProperties,
   getPostedProperties,
-  uploadAvatar
+  uploadAvatar,
 };

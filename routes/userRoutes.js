@@ -41,4 +41,6 @@ router.delete('/like/:propertyId', unlikeProperty);
 router.get('/like/:propertyId/check', checkIfLiked);
 router.post('/like/:propertyId/toggle', toggleLike);
 router.get('/liked-properties', getLikedProperties);
+
+router.get('/posted-properties', getPostedProperties);
 module.exports = router;
