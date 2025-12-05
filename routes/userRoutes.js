@@ -1,13 +1,16 @@
+// routes/user.js
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
+const upload = require("../middlewares/multer");
 const {
   getUserProfile,
   getUserEnquiries,
   updateUserProfile,
   deleteUserAccount,
   getLikedProperties,
-  getPostedProperties
+  getPostedProperties,
+  uploadAvatar
 } = require('../controllers/userController');
 
 const {
@@ -26,13 +29,14 @@ router.delete('/account', protect, deleteUserAccount);
 router.get('/my-enquiries', protect, getUserEnquiries);
 
 // User properties routes
-router.get('/liked-properties', protect, getLikedProperties);
+
 router.get('/posted-properties', protect, getPostedProperties);
 
-// Like routes
-router.post('/like/:propertyId', protect, likeProperty);
-router.delete('/like/:propertyId', protect, unlikeProperty);
-router.get('/like/:propertyId/check', protect, checkIfLiked);
-router.post('/like/:propertyId/toggle', protect, toggleLike);
-
+// Avatar upload route
+router.post('/upload-avatar', protect, upload.single('avatar'), uploadAvatar);
+router.post('/like/:propertyId', likeProperty);
+router.delete('/like/:propertyId', unlikeProperty);
+router.get('/like/:propertyId/check', checkIfLiked);
+router.post('/like/:propertyId/toggle', toggleLike);
+router.get('/liked-properties', getLikedProperties);
 module.exports = router;

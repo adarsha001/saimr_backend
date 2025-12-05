@@ -1,6 +1,261 @@
 const User = require('../models/user');
 const Property = require('../models/property');
 const Enquiry = require('../models/enquiries');
+const cloudinary = require('../config/cloudinary');
+const fs = require('fs');
+const path = require('path');
+
+// Upload avatar to Cloudinary
+const uploadAvatar = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No file uploaded'
+      });
+    }
+
+    console.log('File uploaded:', req.file);
+    console.log('File path:', req.file.path);
+
+    const userId = req.user.id;
+    const user = await User.findById(userId);
+
+    // If user has existing avatar on Cloudinary, delete it
+    if (user.avatar && user.avatar.includes('cloudinary')) {
+      try {
+        // Extract public_id from Cloudinary URL
+        const urlParts = user.avatar.split('/');
+        const publicIdWithFolder = urlParts.slice(-2).join('/').split('.')[0];
+        
+        await cloudinary.uploader.destroy(publicIdWithFolder);
+        console.log('Deleted old Cloudinary avatar:', publicIdWithFolder);
+      } catch (cloudinaryError) {
+        console.error('Error deleting old Cloudinary avatar:', cloudinaryError);
+        // Continue with upload even if deletion fails
+      }
+    }
+
+    // Upload new avatar to Cloudinary
+    console.log('Uploading to Cloudinary...');
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      folder: 'cleartitle/avatars',
+      width: 500,
+      height: 500,
+      crop: 'fill',
+      gravity: 'face',
+      format: 'jpg',
+      quality: 'auto'
+    });
+
+    console.log('Cloudinary upload successful:', result.secure_url);
+
+    // Delete the temporary local file
+    try {
+      fs.unlinkSync(req.file.path);
+      console.log('Deleted temporary file:', req.file.path);
+    } catch (unlinkError) {
+      console.error('Error deleting temp file:', unlinkError);
+    }
+
+    // Update user with new avatar URL
+    user.avatar = result.secure_url;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Avatar uploaded successfully',
+      avatarUrl: result.secure_url
+    });
+  } catch (error) {
+    console.error('Error in uploadAvatar:', error);
+    
+    // Clean up temp file on error
+    if (req.file && req.file.path) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (unlinkError) {
+        console.error('Error cleaning up temp file:', unlinkError);
+      }
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Error uploading avatar',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// In your user controller (updateUserProfile function)
+const updateUserProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { 
+      name, 
+      lastName, 
+      phoneNumber, 
+      alternativePhoneNumber,
+      gmail, 
+      userType, 
+      company, 
+      languages, 
+      officeAddress 
+    } = req.body;
+
+    console.log('Updating profile for user:', userId);
+
+    // Validate required fields
+    if (!name || !phoneNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name and phone number are required'
+      });
+    }
+
+    // Validate phone number format
+    const phoneRegex = /^[6-9]\d{9}$/;
+    const cleanPhone = phoneNumber.replace(/\D/g, '');
+    if (!phoneRegex.test(cleanPhone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid 10-digit Indian phone number'
+      });
+    }
+
+    // Validate alternative phone number if provided
+    if (alternativePhoneNumber) {
+      const cleanAltPhone = alternativePhoneNumber.replace(/\D/g, '');
+      if (!phoneRegex.test(cleanAltPhone)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide a valid 10-digit Indian phone number for alternative phone'
+        });
+      }
+    }
+
+    // For Google users, check if they're updating from dummy number
+    const user = await User.findById(userId);
+    if (user.isGoogleAuth && user.phoneNumber === '1234567890' && cleanPhone === '1234567890') {
+      return res.status(400).json({
+        success: false,
+        message: 'Please update your phone number from the default value'
+      });
+    }
+
+    // Prepare update data
+    const updateData = {
+      name: name.trim(),
+      lastName: lastName?.trim(),
+      phoneNumber: cleanPhone,
+      userType: userType || user.userType || 'buyer',
+      alternativePhoneNumber: alternativePhoneNumber ? alternativePhoneNumber.replace(/\D/g, '') : ''
+    };
+
+    // Only update email if provided and different
+    if (gmail && gmail !== user.gmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(gmail)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide a valid email address'
+        });
+      }
+
+      // Check if email is already taken by another user
+      const existingUser = await User.findOne({ 
+        gmail: gmail.toLowerCase(),
+        _id: { $ne: userId }
+      });
+      
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email is already taken by another user'
+        });
+      }
+      
+      updateData.gmail = gmail.toLowerCase().trim();
+    }
+
+    // Update company, languages and office address for relevant user types
+    if (['agent', 'builder', 'developer', 'seller'].includes(updateData.userType)) {
+      updateData.company = company?.trim();
+      
+      // Parse languages
+      if (languages) {
+        updateData.languages = Array.isArray(languages) 
+          ? languages.map(lang => lang.trim()).filter(lang => lang.length > 0)
+          : languages.split(',').map(lang => lang.trim()).filter(lang => lang.length > 0);
+      }
+
+      // Add office address if provided
+      if (officeAddress && typeof officeAddress === 'object') {
+        updateData.officeAddress = {
+          street: officeAddress.street?.trim() || '',
+          city: officeAddress.city?.trim() || '',
+          state: officeAddress.state?.trim() || '',
+          pincode: officeAddress.pincode?.trim() || ''
+        };
+      }
+    }
+
+    // Update user in database
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      updateData,
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    console.log('Profile updated successfully for:', updatedUser.email);
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: {
+        id: updatedUser._id,
+        name: updatedUser.name,
+        lastName: updatedUser.lastName,
+        username: updatedUser.username,
+        gmail: updatedUser.gmail,
+        userType: updatedUser.userType,
+        phoneNumber: updatedUser.phoneNumber,
+        alternativePhoneNumber: updatedUser.alternativePhoneNumber,
+        isAdmin: updatedUser.isAdmin,
+        isGoogleAuth: updatedUser.isGoogleAuth,
+        avatar: updatedUser.avatar,
+        company: updatedUser.company,
+        languages: updatedUser.languages,
+        officeAddress: updatedUser.officeAddress,
+        emailVerified: updatedUser.emailVerified,
+        requiresPhoneUpdate: updatedUser.isGoogleAuth && updatedUser.phoneNumber === '1234567890'
+      }
+    });
+  } catch (error) {
+    console.error('Error updating user profile:', error);
+    
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: `Validation error: ${errors.join(', ')}`
+      });
+    }
+
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email already exists'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Error updating profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
 
 // Get complete user profile with properties and enquiries
 const getUserProfile = async (req, res) => {
@@ -43,17 +298,34 @@ const getUserProfile = async (req, res) => {
     res.json({
       success: true,
       user: {
-        ...user.toObject(),
+        id: user._id,
+        name: user.name,
+        lastName: user.lastName,
+        username: user.username,
+        gmail: user.gmail,
+        userType: user.userType,
+        phoneNumber: user.phoneNumber,
+        isAdmin: user.isAdmin,
+        isGoogleAuth: user.isGoogleAuth,
+        avatar: user.avatar,
+        company: user.company,
+        languages: user.languages,
+        officeAddress: user.officeAddress,
+        emailVerified: user.emailVerified,
         likedProperties: validLikedProperties,
         postedProperties: user.postedProperties,
-        propertyStats
+        propertyStats,
+        requiresPhoneUpdate: user.isGoogleAuth && user.phoneNumber === '1234567890',
+        createdAt: user.createdAt,
+        lastLogin: user.lastLogin
       }
     });
   } catch (error) {
     console.error('Error fetching user profile:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching user profile'
+      message: 'Error fetching user profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -74,71 +346,8 @@ const getUserEnquiries = async (req, res) => {
     console.error('Error fetching user enquiries:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching user enquiries'
-    });
-  }
-};
-
-// Update user profile
-const updateUserProfile = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { name, lastName, phoneNumber, gmail, userType } = req.body;
-
-    // Validate required fields
-    if (!name || !phoneNumber) {
-      return res.status(400).json({
-        success: false,
-        message: 'Name and phone number are required'
-      });
-    }
-
-    // Check if email is already taken by another user
-    if (gmail) {
-      const existingUser = await User.findOne({ 
-        gmail: gmail.toLowerCase(),
-        _id: { $ne: userId }
-      });
-      
-      if (existingUser) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email is already taken'
-        });
-      }
-    }
-
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      {
-        name: name.trim(),
-        lastName: lastName?.trim(),
-        phoneNumber: phoneNumber.trim(),
-        userType: userType,
-        ...(gmail && { gmail: gmail.toLowerCase().trim() })
-      },
-      { new: true, runValidators: true }
-    ).select('-password');
-
-    res.json({
-      success: true,
-      message: 'Profile updated successfully',
-      user: updatedUser
-    });
-  } catch (error) {
-    console.error('Error updating user profile:', error);
-    
-    if (error.name === 'ValidationError') {
-      const errors = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({
-        success: false,
-        message: `Validation error: ${errors.join(', ')}`
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Error updating profile'
+      message: 'Error fetching user enquiries',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -147,6 +356,22 @@ const updateUserProfile = async (req, res) => {
 const deleteUserAccount = async (req, res) => {
   try {
     const userId = req.user.id;
+    const user = await User.findById(userId);
+
+    // Delete avatar from Cloudinary if exists
+    if (user.avatar && user.avatar.includes('cloudinary')) {
+      try {
+        const urlParts = user.avatar.split('/');
+        const filename = urlParts[urlParts.length - 1];
+        const publicId = filename.split('.')[0];
+        const folder = 'cleartitle/avatars';
+        const fullPublicId = `${folder}/${publicId}`;
+        
+        await cloudinary.uploader.destroy(fullPublicId);
+      } catch (cloudinaryError) {
+        console.error('Error deleting Cloudinary avatar:', cloudinaryError);
+      }
+    }
 
     // Delete user's properties
     await Property.deleteMany({ createdBy: userId });
@@ -165,7 +390,8 @@ const deleteUserAccount = async (req, res) => {
     console.error('Error deleting user account:', error);
     res.status(500).json({
       success: false,
-      message: 'Error deleting account'
+      message: 'Error deleting account',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -194,7 +420,8 @@ const getLikedProperties = async (req, res) => {
     console.error('Error fetching liked properties:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching liked properties'
+      message: 'Error fetching liked properties',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -218,7 +445,8 @@ const getPostedProperties = async (req, res) => {
     console.error('Error fetching posted properties:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching posted properties'
+      message: 'Error fetching posted properties',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -229,5 +457,6 @@ module.exports = {
   updateUserProfile,
   deleteUserAccount,
   getLikedProperties,
-  getPostedProperties
+  getPostedProperties,
+  uploadAvatar
 };

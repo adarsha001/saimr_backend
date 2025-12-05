@@ -7,6 +7,8 @@ const likeProperty = async (req, res) => {
     const { propertyId } = req.params;
     const userId = req.user.id;
 
+    console.log(`User ${userId} liking property ${propertyId}`);
+
     // Check if property exists
     const property = await Property.findById(propertyId);
     if (!property) {
@@ -16,6 +18,7 @@ const likeProperty = async (req, res) => {
       });
     }
 
+    // Find user and check if already liked
     const user = await User.findById(userId);
     
     // Check if already liked
@@ -30,8 +33,15 @@ const likeProperty = async (req, res) => {
       });
     }
 
-    // Add to liked properties
-    await user.addToLikedProperties(propertyId);
+    // Add to liked properties - CORRECTED
+    user.likedProperties.push({
+      property: propertyId,
+      likedAt: new Date()
+    });
+    
+    await user.save();
+
+    console.log(`Property ${propertyId} added to user ${userId}'s favorites`);
 
     res.status(200).json({
       success: true,
@@ -39,10 +49,11 @@ const likeProperty = async (req, res) => {
       likedProperties: user.likedProperties
     });
   } catch (error) {
-    console.error(error);
+    console.error('Error in likeProperty:', error);
     res.status(500).json({
       success: false,
-      message: 'Error liking property'
+      message: 'Error liking property',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -53,22 +64,27 @@ const unlikeProperty = async (req, res) => {
     const { propertyId } = req.params;
     const userId = req.user.id;
 
+    console.log(`User ${userId} unliking property ${propertyId}`);
+
     const user = await User.findById(userId);
     
     // Check if property is liked
-    const isLiked = user.likedProperties.some(
-      item => item.property.toString() === propertyId
+    const initialLength = user.likedProperties.length;
+    user.likedProperties = user.likedProperties.filter(
+      item => item.property.toString() !== propertyId
     );
 
-    if (!isLiked) {
+    // If no change, property wasn't liked
+    if (user.likedProperties.length === initialLength) {
       return res.status(400).json({
         success: false,
         message: 'Property not in favorites'
       });
     }
 
-    // Remove from liked properties
-    await user.removeFromLikedProperties(propertyId);
+    await user.save();
+
+    console.log(`Property ${propertyId} removed from user ${userId}'s favorites`);
 
     res.status(200).json({
       success: true,
@@ -76,10 +92,11 @@ const unlikeProperty = async (req, res) => {
       likedProperties: user.likedProperties
     });
   } catch (error) {
-    console.error(error);
+    console.error('Error in unlikeProperty:', error);
     res.status(500).json({
       success: false,
-      message: 'Error unliking property'
+      message: 'Error unliking property',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -100,10 +117,11 @@ const checkIfLiked = async (req, res) => {
       isLiked
     });
   } catch (error) {
-    console.error(error);
+    console.error('Error in checkIfLiked:', error);
     res.status(500).json({
       success: false,
-      message: 'Error checking like status'
+      message: 'Error checking like status',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -113,6 +131,8 @@ const toggleLike = async (req, res) => {
   try {
     const { propertyId } = req.params;
     const userId = req.user.id;
+
+    console.log(`User ${userId} toggling like for property ${propertyId}`);
 
     const user = await User.findById(userId);
     const property = await Property.findById(propertyId);
@@ -124,19 +144,33 @@ const toggleLike = async (req, res) => {
       });
     }
 
-    const isLiked = user.likedProperties.some(
+    // Check if already liked
+    const likedIndex = user.likedProperties.findIndex(
       item => item.property.toString() === propertyId
     );
 
-    if (isLiked) {
-      await user.removeFromLikedProperties(propertyId);
+    if (likedIndex !== -1) {
+      // Unlike: Remove from array
+      user.likedProperties.splice(likedIndex, 1);
+      await user.save();
+      
+      console.log(`Property ${propertyId} unliked by user ${userId}`);
+      
       res.status(200).json({
         success: true,
         message: 'Property removed from favorites',
         isLiked: false
       });
     } else {
-      await user.addToLikedProperties(propertyId);
+      // Like: Add to array
+      user.likedProperties.push({
+        property: propertyId,
+        likedAt: new Date()
+      });
+      await user.save();
+      
+      console.log(`Property ${propertyId} liked by user ${userId}`);
+      
       res.status(200).json({
         success: true,
         message: 'Property added to favorites',
@@ -144,10 +178,41 @@ const toggleLike = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error(error);
+    console.error('Error in toggleLike:', error);
     res.status(500).json({
       success: false,
-      message: 'Error toggling like'
+      message: 'Error toggling like',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get user's liked properties
+const getLikedProperties = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const user = await User.findById(userId)
+      .populate({
+        path: 'likedProperties.property',
+        select: 'title price city category images propertyLocation attributes isVerified isFeatured approvalStatus'
+      });
+
+    // Filter out null properties (in case a property was deleted)
+    const validLikedProperties = user.likedProperties.filter(
+      item => item.property !== null
+    );
+
+    res.status(200).json({
+      success: true,
+      likedProperties: validLikedProperties
+    });
+  } catch (error) {
+    console.error('Error in getLikedProperties:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching liked properties',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -156,5 +221,6 @@ module.exports = {
   likeProperty,
   unlikeProperty,
   checkIfLiked,
-  toggleLike
+  toggleLike,
+  getLikedProperties
 };
