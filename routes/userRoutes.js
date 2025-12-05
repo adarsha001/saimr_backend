@@ -30,7 +30,6 @@ router.get('/my-enquiries', protect, getUserEnquiries);
 
 // User properties routes
 
-router.get('/posted-properties', protect, getPostedProperties);
 
 // Avatar upload route
 router.post('/upload-avatar', protect, upload.single('avatar'), uploadAvatar);

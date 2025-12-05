@@ -652,7 +652,6 @@ const getPostedProperties = async (req, res) => {
 
 
 
-
 module.exports = {
   getUserProfile,
   getUserEnquiries,

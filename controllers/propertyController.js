@@ -204,7 +204,36 @@ const createProperty = async (req, res) => {
       nearby: parsedNearby,
     });
 
+    // Save the property
     await newProperty.save();
+    
+    // ============ ADDED: Update user's postedProperties array ============
+    try {
+      // Find the user and update their postedProperties array
+      const user = await User.findById(req.user._id);
+      if (user) {
+        // Check if property already exists in postedProperties (shouldn't, but just in case)
+        const alreadyExists = user.postedProperties.some(
+          item => item.property.toString() === newProperty._id.toString()
+        );
+        
+        if (!alreadyExists) {
+          user.postedProperties.push({
+            property: newProperty._id,
+            postedAt: newProperty.createdAt,
+            status: 'active'
+          });
+          await user.save();
+          console.log(`Property ${newProperty._id} added to user ${user._id}'s postedProperties`);
+        }
+      } else {
+        console.warn(`User ${req.user._id} not found when updating postedProperties`);
+      }
+    } catch (userUpdateError) {
+      console.error('Error updating user postedProperties:', userUpdateError);
+      // Don't fail the whole request if this fails, just log it
+    }
+    // ============ END OF ADDED CODE ============
     
     // Populate with correct field names
     await newProperty.populate('createdBy', 'name username gmail phoneNumber');
