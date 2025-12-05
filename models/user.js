@@ -1,3 +1,4 @@
+// models/User.js
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const validator = require('validator');
@@ -59,10 +60,10 @@ const userSchema = new mongoose.Schema({
   },
   gmail: {
     type: String,
-    required: [true, 'Gmail is required'],
+    required: [true, 'Email is required'],
     unique: true,
     lowercase: true,
-    validate: [validator.isEmail, 'Please provide a valid gmail address']
+    validate: [validator.isEmail, 'Please provide a valid email address']
   },
   password: {
     type: String,
@@ -82,14 +83,15 @@ const userSchema = new mongoose.Schema({
   googleId: {
     type: String,
     unique: true,
-    sparse: true // Allows null values while maintaining uniqueness
+    sparse: true
   },
   isGoogleAuth: {
     type: Boolean,
     default: false
   },
   avatar: {
-    type: String
+    type: String,
+    default: ''
   },
   emailVerified: {
     type: Boolean,
@@ -99,7 +101,7 @@ const userSchema = new mongoose.Schema({
     type: Date
   },
   
-  // Agent-specific fields
+  // Business Information
   company: {
     type: String,
     trim: true
@@ -109,11 +111,53 @@ const userSchema = new mongoose.Schema({
     trim: true
   }],
   officeAddress: {
-    street: String,
-    city: String,
-    state: String,
-    pincode: String
+    street: { type: String, trim: true },
+    city: { type: String, trim: true },
+    state: { type: String, trim: true },
+    pincode: { type: String, trim: true }
   },
+  
+  // Personal Information
+  dateOfBirth: {
+    type: Date
+  },
+
+  occupation: {
+    type: String,
+    trim: true
+  },
+
+  preferredLocation: {
+    type: String,
+    trim: true
+  },
+
+  
+  // Contact Preferences
+  contactPreferences: {
+    phone: { type: Boolean, default: true },
+    email: { type: Boolean, default: true },
+    whatsapp: { type: Boolean, default: true },
+    sms: { type: Boolean, default: false }
+  },
+  
+
+
+  specialization: [{
+    type: String,
+    trim: true
+  }],
+  website: {
+    type: String,
+    trim: true
+  },
+  socialMedia: {
+    facebook: { type: String, trim: true },
+    twitter: { type: String, trim: true },
+    linkedin: { type: String, trim: true },
+    instagram: { type: String, trim: true }
+  },
+  
   // Array of properties liked by the user
   likedProperties: [{
     property: {
@@ -126,6 +170,7 @@ const userSchema = new mongoose.Schema({
       default: Date.now
     }
   }],
+  
   // Array of properties posted by the user
   postedProperties: [{
     property: {
@@ -142,6 +187,34 @@ const userSchema = new mongoose.Schema({
       enum: ['active', 'sold', 'rented', 'expired', 'draft'],
       default: 'active'
     }
+  }],
+  
+  // Settings and Preferences
+  notifications: {
+    emailNotifications: { type: Boolean, default: true },
+    propertyAlerts: { type: Boolean, default: true },
+    priceDropAlerts: { type: Boolean, default: true },
+    newPropertyAlerts: { type: Boolean, default: true }
+  },
+  
+  // Verification
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
+  verificationDate: {
+    type: Date
+  },
+  
+  // Additional Info
+  about: {
+    type: String,
+    trim: true,
+    maxlength: [1000, 'About section cannot exceed 1000 characters']
+  },
+  interests: [{
+    type: String,
+    trim: true
   }]
 }, {
   timestamps: true
@@ -156,9 +229,8 @@ userSchema.pre('save', async function(next) {
   next();
 });
 
-// Compare password method (handles Google auth users)
+// Compare password method
 userSchema.methods.comparePassword = async function(candidatePassword) {
-  // Google auth users don't have passwords
   if (this.isGoogleAuth) {
     return false;
   }
@@ -177,6 +249,34 @@ userSchema.methods.getSignedJwtToken = function() {
     },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRE }
+  );
+};
+
+// Method to add liked property
+userSchema.methods.addLikedProperty = async function(propertyId) {
+  if (!this.likedProperties.some(item => item.property.toString() === propertyId)) {
+    this.likedProperties.push({
+      property: propertyId,
+      likedAt: new Date()
+    });
+    await this.save();
+  }
+  return this;
+};
+
+// Method to remove liked property
+userSchema.methods.removeLikedProperty = async function(propertyId) {
+  this.likedProperties = this.likedProperties.filter(
+    item => item.property.toString() !== propertyId
+  );
+  await this.save();
+  return this;
+};
+
+// Method to check if property is liked
+userSchema.methods.isPropertyLiked = function(propertyId) {
+  return this.likedProperties.some(
+    item => item.property.toString() === propertyId
   );
 };
 

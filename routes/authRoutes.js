@@ -15,7 +15,7 @@ router.post('/login', login);
 router.post('/google', googleSignIn);
 
 // Protected routes
-router.put('/profile', protect, updateProfile);
+
 router.get('/check-phone', protect, checkPhoneUpdate);
 // Enquiry route (public - anyone can submit an enquiry)
 router.post('/enquiries', createEnquiry);
