@@ -34,6 +34,8 @@ router.get('/posted-properties', protect, getPostedProperties);
 
 // Avatar upload route
 router.post('/upload-avatar', protect, upload.single('avatar'), uploadAvatar);
+
+router.use(protect);
 router.post('/like/:propertyId', likeProperty);
 router.delete('/like/:propertyId', unlikeProperty);
 router.get('/like/:propertyId/check', checkIfLiked);

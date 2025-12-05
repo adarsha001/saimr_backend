@@ -4,10 +4,26 @@ const Property = require('../models/property');
 // Like a property
 const likeProperty = async (req, res) => {
   try {
+    // Check if user exists on request
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
+      });
+    }
+
     const { propertyId } = req.params;
     const userId = req.user.id;
 
     console.log(`User ${userId} liking property ${propertyId}`);
+
+    // Validate propertyId
+    if (!propertyId || propertyId.length !== 24) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid property ID'
+      });
+    }
 
     // Check if property exists
     const property = await Property.findById(propertyId);
@@ -18,12 +34,18 @@ const likeProperty = async (req, res) => {
       });
     }
 
-    // Find user and check if already liked
+    // Find user
     const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
     
     // Check if already liked
     const alreadyLiked = user.likedProperties.some(
-      item => item.property.toString() === propertyId
+      item => item.property && item.property.toString() === propertyId
     );
 
     if (alreadyLiked) {
@@ -33,7 +55,7 @@ const likeProperty = async (req, res) => {
       });
     }
 
-    // Add to liked properties - CORRECTED
+    // Add to liked properties
     user.likedProperties.push({
       property: propertyId,
       likedAt: new Date()
@@ -50,6 +72,15 @@ const likeProperty = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in likeProperty:', error);
+    
+    // More specific error handling
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid ID format'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Error liking property',
@@ -61,17 +92,31 @@ const likeProperty = async (req, res) => {
 // Unlike a property
 const unlikeProperty = async (req, res) => {
   try {
+    // Check if user exists on request
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
+      });
+    }
+
     const { propertyId } = req.params;
     const userId = req.user.id;
 
     console.log(`User ${userId} unliking property ${propertyId}`);
 
     const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
     
     // Check if property is liked
     const initialLength = user.likedProperties.length;
     user.likedProperties = user.likedProperties.filter(
-      item => item.property.toString() !== propertyId
+      item => item.property && item.property.toString() !== propertyId
     );
 
     // If no change, property wasn't liked
@@ -104,12 +149,27 @@ const unlikeProperty = async (req, res) => {
 // Check if property is liked by user
 const checkIfLiked = async (req, res) => {
   try {
+    // Check if user exists on request
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
+      });
+    }
+
     const { propertyId } = req.params;
     const userId = req.user.id;
 
     const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
     const isLiked = user.likedProperties.some(
-      item => item.property.toString() === propertyId
+      item => item.property && item.property.toString() === propertyId
     );
 
     res.status(200).json({
@@ -129,14 +189,36 @@ const checkIfLiked = async (req, res) => {
 // Toggle like/unlike
 const toggleLike = async (req, res) => {
   try {
+    // Check if user exists on request
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
+      });
+    }
+
     const { propertyId } = req.params;
     const userId = req.user.id;
 
     console.log(`User ${userId} toggling like for property ${propertyId}`);
 
-    const user = await User.findById(userId);
-    const property = await Property.findById(propertyId);
+    // Validate propertyId
+    if (!propertyId || propertyId.length !== 24) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid property ID'
+      });
+    }
 
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const property = await Property.findById(propertyId);
     if (!property) {
       return res.status(404).json({
         success: false,
@@ -146,7 +228,7 @@ const toggleLike = async (req, res) => {
 
     // Check if already liked
     const likedIndex = user.likedProperties.findIndex(
-      item => item.property.toString() === propertyId
+      item => item.property && item.property.toString() === propertyId
     );
 
     if (likedIndex !== -1) {
@@ -171,7 +253,7 @@ const toggleLike = async (req, res) => {
       
       console.log(`Property ${propertyId} liked by user ${userId}`);
       
-      res.status(200).json({
+      res.status(500).json({
         success: true,
         message: 'Property added to favorites',
         isLiked: true
@@ -179,6 +261,14 @@ const toggleLike = async (req, res) => {
     }
   } catch (error) {
     console.error('Error in toggleLike:', error);
+    
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid ID format'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Error toggling like',
@@ -190,6 +280,14 @@ const toggleLike = async (req, res) => {
 // Get user's liked properties
 const getLikedProperties = async (req, res) => {
   try {
+    // Check if user exists on request
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
+      });
+    }
+
     const userId = req.user.id;
 
     const user = await User.findById(userId)
@@ -197,6 +295,13 @@ const getLikedProperties = async (req, res) => {
         path: 'likedProperties.property',
         select: 'title price city category images propertyLocation attributes isVerified isFeatured approvalStatus'
       });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
 
     // Filter out null properties (in case a property was deleted)
     const validLikedProperties = user.likedProperties.filter(
