@@ -1,7 +1,7 @@
 const Property = require("../models/property");
 const upload = require("../middlewares/multer");
 const cloudinary = require("../config/cloudinary");
-const user = require("../models/user");
+const User = require("../models/user"); // Changed to uppercase User
 
 // Create new property
 const createProperty = async (req, res) => {
@@ -211,21 +211,24 @@ const createProperty = async (req, res) => {
     // ============ ADDED: Update user's postedProperties array ============
     try {
       // Find the user and update their postedProperties array
-      const user = await user.findById(req.user._id);
-      if (user) {
+      const foundUser = await User.findById(req.user._id); // Changed to User with uppercase
+      if (foundUser) {
         // Check if property already exists in postedProperties (shouldn't, but just in case)
-        const alreadyExists = user.postedProperties.some(
-          item => item.property.toString() === newProperty._id.toString()
+        const alreadyExists = foundUser.postedProperties.some(
+          item => item.property && item.property.toString() === newProperty._id.toString()
         );
         
         if (!alreadyExists) {
-          user.postedProperties.push({
+          foundUser.postedProperties.push({
             property: newProperty._id,
             postedAt: newProperty.createdAt,
             status: 'active'
           });
-          await user.save();
-          console.log(`Property ${newProperty._id} added to user ${user._id}'s postedProperties`);
+          await foundUser.save();
+          console.log(`Property ${newProperty._id} added to user ${foundUser._id}'s postedProperties`);
+          console.log('User postedProperties after update:', foundUser.postedProperties); // Debug log
+        } else {
+          console.log(`Property ${newProperty._id} already exists in user's postedProperties`);
         }
       } else {
         console.warn(`User ${req.user._id} not found when updating postedProperties`);
@@ -262,9 +265,7 @@ const createProperty = async (req, res) => {
   }
 };
 
-// controllers/propertyController.js
-
-
+// Alternative property creation method
 const createPropertyn = async (req, res) => {
   try {
     let uploadedImages = [];
@@ -330,6 +331,28 @@ const createPropertyn = async (req, res) => {
       createdBy, // ✅ Required field
     });
 
+    // Also update user's postedProperties for this method
+    try {
+      const foundUser = await User.findById(createdBy); // Changed to User with uppercase
+      if (foundUser) {
+        const alreadyExists = foundUser.postedProperties.some(
+          item => item.property && item.property.toString() === newProperty._id.toString()
+        );
+        
+        if (!alreadyExists) {
+          foundUser.postedProperties.push({
+            property: newProperty._id,
+            postedAt: newProperty.createdAt,
+            status: 'active'
+          });
+          await foundUser.save();
+          console.log(`Property ${newProperty._id} added to user ${foundUser._id}'s postedProperties via createPropertyn`);
+        }
+      }
+    } catch (userUpdateError) {
+      console.error('Error updating user postedProperties in createPropertyn:', userUpdateError);
+    }
+
     res.status(201).json({
       success: true,
       message: "Property created successfully",
@@ -344,7 +367,6 @@ const createPropertyn = async (req, res) => {
     });
   }
 };
-
 
 const getProperties = async (req, res) => {
   try {
@@ -433,9 +455,7 @@ const getProperties = async (req, res) => {
     });
   }
 };
-// controllers/adminController.js
 
-// Assign properties to websites (bulk)
 // Assign properties to websites (bulk) - SIMPLIFIED
 const assignPropertiesToWebsites = async (req, res) => {
   try {
@@ -534,7 +554,6 @@ const assignPropertiesToWebsites = async (req, res) => {
 };
 
 // Get properties with website assignment info for admin
-// Get properties with website assignment info for admin
 const getPropertiesForAdmin = async (req, res) => {
   try {
     const {
@@ -608,7 +627,6 @@ const getPropertiesForAdmin = async (req, res) => {
     });
   }
 };
-// Get ALL properties (including pending) - FOR ADMIN USE ONLY
 
 // Get single property by ID - only show if approved (unless admin)
 const getPropertyById = async (req, res) => {
@@ -835,6 +853,20 @@ const deleteProperty = async (req, res) => {
       }
     }
 
+    // Also remove property from user's postedProperties
+    try {
+      const foundUser = await User.findById(property.createdBy); // Changed to User with uppercase
+      if (foundUser) {
+        foundUser.postedProperties = foundUser.postedProperties.filter(
+          item => item.property && item.property.toString() !== property._id.toString()
+        );
+        await foundUser.save();
+        console.log(`Property ${property._id} removed from user ${foundUser._id}'s postedProperties`);
+      }
+    } catch (userUpdateError) {
+      console.error('Error removing property from user postedProperties:', userUpdateError);
+    }
+
     await Property.findByIdAndDelete(req.params.id);
 
     res.status(200).json({
@@ -851,13 +883,65 @@ const deleteProperty = async (req, res) => {
   }
 };
 
+// Sync existing properties to user postedProperties (one-time script)
+const syncPropertiesToUsers = async (req, res) => {
+  try {
+    if (!req.user || !req.user.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const properties = await Property.find();
+    let syncedCount = 0;
+    
+    for (const property of properties) {
+      if (property.createdBy) {
+        const foundUser = await User.findById(property.createdBy); // Changed to User with uppercase
+        if (foundUser) {
+          const alreadyExists = foundUser.postedProperties.some(
+            item => item.property && item.property.toString() === property._id.toString()
+          );
+          
+          if (!alreadyExists) {
+            foundUser.postedProperties.push({
+              property: property._id,
+              postedAt: property.createdAt,
+              status: 'active'
+            });
+            await foundUser.save();
+            syncedCount++;
+            console.log(`Synced property ${property._id} to user ${foundUser._id}`);
+          }
+        }
+      }
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: `Successfully synced ${syncedCount} properties to users' postedProperties`
+    });
+  } catch (error) {
+    console.error('Error syncing properties to users:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error syncing properties',
+      error: error.message
+    });
+  }
+};
+
 module.exports = { 
   createProperty, 
-  getProperties, createPropertyn,
-
+  getProperties, 
+  createPropertyn,
   getPropertyById, 
   getPropertiesByUser,
   updatePropertyStatus,
   updateProperty,
-  deleteProperty,getPropertiesForAdmin,assignPropertiesToWebsites
+  deleteProperty,
+  getPropertiesForAdmin,
+  assignPropertiesToWebsites,
+  syncPropertiesToUsers // Added this function
 };
