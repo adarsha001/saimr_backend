@@ -265,9 +265,7 @@ exports.getAllUsersWithLikes = async (req, res) => {
       // Google Auth Fields
       googleId: user.googleId,
       isGoogleAuth: user.isGoogleAuth,
-      avatar: user.avatar ? 
-        (user.avatar.startsWith('http') ? user.avatar : `${process.env.BACKEND_URL || 'http://localhost:5000'}/${user.avatar}`) 
-        : null,
+      avatar: user.avatar,
       emailVerified: user.emailVerified,
       lastLogin: user.lastLogin,
       
