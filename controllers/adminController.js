@@ -250,7 +250,7 @@ exports.getAllUsersWithLikes = async (req, res) => {
 
     const total = await User.countDocuments(filter);
 
-    // Transform the data to include all user details
+    // Transform the data to include all user details with proper avatar URL
     const transformedUsers = users.map(user => ({
       _id: user._id,
       username: user.username,
@@ -265,7 +265,9 @@ exports.getAllUsersWithLikes = async (req, res) => {
       // Google Auth Fields
       googleId: user.googleId,
       isGoogleAuth: user.isGoogleAuth,
-      avatar: user.avatar,
+      avatar: user.avatar ? 
+        (user.avatar.startsWith('http') ? user.avatar : `${process.env.BACKEND_URL || 'http://localhost:5000'}/${user.avatar}`) 
+        : null,
       emailVerified: user.emailVerified,
       lastLogin: user.lastLogin,
       
@@ -373,6 +375,7 @@ exports.getAllUsersWithLikes = async (req, res) => {
   }
 };
 
+// ✅ Get single user by ID with complete details
 exports.getUserById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -410,6 +413,38 @@ exports.getUserById = async (req, res) => {
       });
     }
 
+    // Process avatar URL
+    let avatarUrl = null;
+    if (user.avatar) {
+      avatarUrl = user.avatar.startsWith('http') 
+        ? user.avatar 
+        : `${process.env.BACKEND_URL || 'http://localhost:5000'}/${user.avatar}`;
+    }
+
+    // Process property images
+    const processProperties = (properties) => {
+      return properties.map(item => {
+        const property = item.property ? item.property.toObject() : {};
+        
+        // Process property images
+        if (property.images && Array.isArray(property.images)) {
+          property.images = property.images.map(img => ({
+            ...img,
+            url: img.url && !img.url.startsWith('http') 
+              ? `${process.env.BACKEND_URL || 'http://localhost:5000'}/${img.url}`
+              : img.url
+          }));
+        }
+
+        return {
+          ...property,
+          likedAt: item.likedAt,
+          postedAt: item.postedAt,
+          status: item.status
+        };
+      }).filter(item => item._id);
+    };
+
     res.status(200).json({
       success: true,
       user: {
@@ -429,7 +464,7 @@ exports.getUserById = async (req, res) => {
         // Google Auth Info
         googleId: user.googleId,
         isGoogleAuth: user.isGoogleAuth,
-        avatar: user.avatar,
+        avatar: avatarUrl, // Processed avatar URL
         emailVerified: user.emailVerified,
         lastLogin: user.lastLogin,
         
@@ -465,16 +500,9 @@ exports.getUserById = async (req, res) => {
         likedPropertiesCount: user.likedProperties.length,
         postedPropertiesCount: user.postedProperties.length,
         
-        likedProperties: user.likedProperties.map(like => ({
-          ...like.property?.toObject(),
-          likedAt: like.likedAt
-        })).filter(like => like._id),
-        
-        postedProperties: user.postedProperties.map(post => ({
-          ...post.property?.toObject(),
-          postedAt: post.postedAt,
-          status: post.status
-        })).filter(post => post._id),
+        // Processed properties with images
+        likedProperties: processProperties(user.likedProperties),
+        postedProperties: processProperties(user.postedProperties),
         
         // Settings and Preferences
         notifications: user.notifications,
@@ -501,6 +529,7 @@ exports.getUserById = async (req, res) => {
     });
   }
 };
+
 
 exports.getWebsiteUserStats = async (req, res) => {
   try {
