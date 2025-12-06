@@ -15,6 +15,10 @@ router.use(detectWebsite);
 router.post('/register', register);
 router.post('/login', login);
 router.post('/google', googleSignIn);
+router.post('/google-login', googleSignIn);
+// OR
+router.post('/google-signin', googleSignIn);
+// OR
 
 // Protected routes
 
