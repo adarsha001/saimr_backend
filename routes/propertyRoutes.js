@@ -8,8 +8,7 @@ const router = express.Router();
 router.get("/", getProperties);
 router.get("/:id", getPropertyById);
 
-// Protected routes - require authentication
-router.use(protect); // This applies to all routes below
+router.use(protect);
 router.post("/", upload.array("images", 10), createProperty);
 router.post("/postn", upload.array("images", 10), createPropertyn);
 router.get('/my-properties', getPropertiesByUser);

@@ -5,6 +5,7 @@ const cors = require("cors");
 const propertyRoutes = require("./routes/propertyRoutes");
 const agentRoutes = require("./routes/agentroute");
 const Property = require("./models/property");
+const propertyUnitRoutes = require('./routes/propertyUnitRoutes');
 dotenv.config();
 
 const app = express();
@@ -44,7 +45,7 @@ app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/admin/agent', require('./routes/agentroute'));
 app.use('/api/clicks', require('./routes/clicks'));
 app.use("/api/agents", agentRoutes);
-
+app.use('/api/property-units', propertyUnitRoutes);
 // ✅ Health check route
 app.get('/api/health', (req, res) => {
   res.json({ 
