@@ -64,14 +64,12 @@ const propertyUnitSchema = new mongoose.Schema(
       bedrooms: { 
         type: Number, 
         required: true,
-        min: 0,
-        max: 10 
+    
       },
       bathrooms: { 
         type: Number, 
         required: true,
-        min: 0,
-        max: 10 
+     
       },
       balconies: { type: Number, default: 0 },
       floors: { type: Number, default: 1 }, // Number of floors in this unit
