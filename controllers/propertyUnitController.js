@@ -479,14 +479,15 @@ const getPropertyUnits = async (req, res) => {
       if (maxArea) filter['specifications.carpetArea'].$lte = Number(maxArea);
     }
     
-    // Search filter (searches in title, description, address, city)
+    // Search filter (searches in title, description, address, city, building name, AND mapUrl)
     if (search) {
       filter.$or = [
         { title: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } },
         { address: { $regex: search, $options: 'i' } },
         { city: { $regex: search, $options: 'i' } },
-        { 'buildingDetails.name': { $regex: search, $options: 'i' } }
+        { 'buildingDetails.name': { $regex: search, $options: 'i' } },
+        { mapUrl: { $regex: search, $options: 'i' } } // Added: Search in mapUrl too
       ];
     }
     
@@ -570,7 +571,6 @@ const getPropertyUnits = async (req, res) => {
     });
   }
 };
-
    
 // Update property unit
 const updatePropertyUnit = async (req, res) => {
