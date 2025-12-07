@@ -402,6 +402,7 @@ const createPropertyUnit = async (req, res) => {
 
 
 // Get all property units
+// In propertyUnitController.js
 const getPropertyUnits = async (req, res) => {
   try {
     const {
@@ -430,12 +431,15 @@ const getPropertyUnits = async (req, res) => {
     // Build filter
     const filter = {};
 
-    // Only show approved properties to non-admin users
-    if (!req.user || (req.user.userType !== 'admin' && req.user.userType !== 'superadmin')) {
+    // User type check
+    const isAdmin = req.user && (req.user.userType === 'admin' || req.user.userType === 'superadmin');
+
+    // Set default filters for non-admin users
+    if (!isAdmin) {
       filter.approvalStatus = 'approved';
       filter.availability = 'available';
     } else {
-      // Admin can see all properties with any approval status
+      // Admin can see all properties
       if (approvalStatus) {
         filter.approvalStatus = approvalStatus;
       }
@@ -445,92 +449,130 @@ const getPropertyUnits = async (req, res) => {
     }
 
     // Apply basic filters
-    if (city) filter.city = new RegExp(city, 'i');
-    if (propertyType) filter.propertyType = propertyType;
-    if (listingType) filter.listingType = listingType;
-    if (availability && (!req.user || (req.user.userType !== 'admin' && req.user.userType !== 'superadmin'))) {
-      filter.availability = availability;
+    if (city && city.trim() !== '') {
+      filter.city = new RegExp(city.trim(), 'i');
+    }
+    
+    if (propertyType && propertyType.trim() !== '') {
+      filter.propertyType = propertyType.trim();
+    }
+    
+    if (listingType && listingType.trim() !== '') {
+      filter.listingType = listingType.trim();
     }
     
     // Specifications filters
-    if (furnishing) filter['specifications.furnishing'] = furnishing;
-    if (possessionStatus) filter['specifications.possessionStatus'] = possessionStatus;
-    if (kitchenType) filter['specifications.kitchenType'] = kitchenType;
+    if (furnishing && furnishing.trim() !== '') {
+      filter['specifications.furnishing'] = furnishing.trim();
+    }
     
-    // Status filters (only for admin)
-    if (req.user && (req.user.userType === 'admin' || req.user.userType === 'superadmin')) {
-      if (isFeatured !== undefined) filter.isFeatured = isFeatured === 'true';
-      if (isVerified !== undefined) filter.isVerified = isVerified === 'true';
+    if (possessionStatus && possessionStatus.trim() !== '') {
+      filter['specifications.possessionStatus'] = possessionStatus.trim();
+    }
+    
+    if (kitchenType && kitchenType.trim() !== '') {
+      filter['specifications.kitchenType'] = kitchenType.trim();
+    }
+    
+    // Admin-only filters
+    if (isAdmin) {
+      if (isFeatured !== undefined && isFeatured !== '') {
+        filter.isFeatured = isFeatured === 'true';
+      }
+      if (isVerified !== undefined && isVerified !== '') {
+        filter.isVerified = isVerified === 'true';
+      }
     }
     
     // Numeric filters
-    if (bedrooms) {
+    if (bedrooms && !isNaN(bedrooms)) {
       filter['specifications.bedrooms'] = Number(bedrooms);
     }
     
-    if (bathrooms) {
+    if (bathrooms && !isNaN(bathrooms)) {
       filter['specifications.bathrooms'] = Number(bathrooms);
     }
     
-    // Area filter (carpetArea)
+    // Area filter
     if (minArea || maxArea) {
       filter['specifications.carpetArea'] = {};
-      if (minArea) filter['specifications.carpetArea'].$gte = Number(minArea);
-      if (maxArea) filter['specifications.carpetArea'].$lte = Number(maxArea);
+      if (minArea && !isNaN(minArea)) {
+        filter['specifications.carpetArea'].$gte = Number(minArea);
+      }
+      if (maxArea && !isNaN(maxArea)) {
+        filter['specifications.carpetArea'].$lte = Number(maxArea);
+      }
     }
     
     // Search filter
-    if (search) {
+    if (search && search.trim() !== '') {
+      const searchRegex = new RegExp(search.trim(), 'i');
       filter.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { address: { $regex: search, $options: 'i' } },
-        { city: { $regex: search, $options: 'i' } },
-        { 'buildingDetails.name': { $regex: search, $options: 'i' } },
-        { mapUrl: { $regex: search, $options: 'i' } }
+        { title: searchRegex },
+        { description: searchRegex },
+        { address: searchRegex },
+        { city: searchRegex },
+        { 'buildingDetails.name': searchRegex },
+        { mapUrl: searchRegex }
       ];
     }
     
-    // Filter by creator (for user's own properties)
-    if (createdBy) {
-      filter.createdBy = createdBy;
+    // Filter by creator
+    if (createdBy && createdBy.trim() !== '') {
+      filter.createdBy = createdBy.trim();
     }
 
     // Calculate pagination
-    const skip = (page - 1) * limit;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(Math.max(1, parseInt(limit) || 10), 100);
+    const skip = (pageNum - 1) * limitNum;
 
-    // Sort configuration
-    const sort = {};
+    // **CRITICAL FIX: Build sort object correctly**
+    // First, create a clean sort object
+    let sort = {};
     
-    // Validate sortBy field to prevent injection
-    const validSortFields = [
-      'createdAt', 'updatedAt', 'title', 'city', 
-      'specifications.bedrooms', 'specifications.carpetArea',
-      'isFeatured', 'isVerified', 'availability',
-      'price', 'listingType'
-    ];
+    // Define allowed sort fields
+    const allowedSortFields = {
+      'createdAt': 'createdAt',
+      'updatedAt': 'updatedAt',
+      'title': 'title',
+      'city': 'city',
+      'price': 'price',
+      'listingType': 'listingType',
+      'isFeatured': 'isFeatured',
+      'isVerified': 'isVerified',
+      'availability': 'availability',
+      'bedrooms': 'specifications.bedrooms',
+      'carpetArea': 'specifications.carpetArea'
+    };
+
+    // Get the sort field from allowed fields or default to createdAt
+    const sortField = allowedSortFields[sortBy] || 'createdAt';
+    const sortDirection = sortOrder === 'asc' ? 1 : -1;
     
-    if (validSortFields.includes(sortBy)) {
-      sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-    } else {
-      sort.createdAt = -1; // Default sort
-    }
+    // Set the sort field
+    sort[sortField] = sortDirection;
     
-    // Special case for featured properties - show featured first
-    if (sortBy === 'createdAt' || sortBy === 'price') {
-      sort.isFeatured = -1; // Featured properties first
+    // **Important: Only add isFeatured to sort if we're not already sorting by it**
+    if (sortField !== 'isFeatured') {
+      sort.isFeatured = -1; // Show featured first
     }
 
-    // Debug logging
-    console.log('Sort configuration:', sort);
-    console.log('Filter:', filter);
-    console.log('Skip:', skip, 'Limit:', limit);
+    console.log('Sort configuration:', JSON.stringify(sort));
+    console.log('Filter:', JSON.stringify(filter));
+    console.log('Skip:', skip, 'Limit:', limitNum);
 
     // Execute query
-    const propertyUnits = await PropertyUnit.find(filter)
-      .sort(sort)
+    const query = PropertyUnit.find(filter);
+    
+    // Apply sort - ensure it's a valid object
+    if (Object.keys(sort).length > 0) {
+      query.sort(sort);
+    }
+    
+    const propertyUnits = await query
       .skip(skip)
-      .limit(Number(limit))
+      .limit(limitNum)
       .populate('createdBy', 'name email phoneNumber avatar')
       .populate('parentProperty', 'name title images')
       .lean();
@@ -538,19 +580,18 @@ const getPropertyUnits = async (req, res) => {
     // Get total count
     const total = await PropertyUnit.countDocuments(filter);
 
-    // Get available filters for frontend
-    const availableCities = await PropertyUnit.distinct('city', filter);
-    const availablePropertyTypes = await PropertyUnit.distinct('propertyType', filter);
+    // Get available filters
+    const availableCities = await PropertyUnit.distinct('city', filter).sort();
+    const availablePropertyTypes = await PropertyUnit.distinct('propertyType', filter).sort();
     const availableBedrooms = await PropertyUnit.distinct('specifications.bedrooms', filter)
-      .sort((a, b) => a - b)
-      .filter(bedroom => bedroom !== undefined);
+      .then(beds => beds.filter(b => b != null).sort((a, b) => a - b));
 
     res.status(200).json({
       success: true,
       count: propertyUnits.length,
       total,
-      totalPages: Math.ceil(total / limit),
-      currentPage: Number(page),
+      totalPages: Math.ceil(total / limitNum),
+      currentPage: pageNum,
       data: propertyUnits,
       filters: {
         availableCities,
@@ -570,14 +611,15 @@ const getPropertyUnits = async (req, res) => {
 
   } catch (error) {
     console.error('Get property units error:', error);
+    console.error('Error stack:', error.stack);
+    
     res.status(500).json({
       success: false,
       message: 'Error fetching property units',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
-   
 // Update property unit
 const updatePropertyUnit = async (req, res) => {
   try {
