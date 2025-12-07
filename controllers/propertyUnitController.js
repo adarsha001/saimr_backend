@@ -779,7 +779,7 @@ const deletePropertyUnit = async (req, res) => {
 module.exports = {
   createPropertyUnit,
   getPropertyUnits,
-  getPropertyUnit,
+
   updatePropertyUnit,
   deletePropertyUnit
 };
