@@ -59,7 +59,6 @@ const createPropertyUnit = async (req, res) => {
       // Additional Info
       virtualTour,
       floorPlan,
-      agentDetails,
       ownerDetails,
       legalDetails,
       viewingSchedule,
@@ -173,7 +172,6 @@ const createPropertyUnit = async (req, res) => {
     let parsedUnitFeatures = [];
     let parsedRentalDetails = {};
     let parsedCoordinates = {};
-    let parsedAgentDetails = {};
     let parsedOwnerDetails = {};
     let parsedLegalDetails = {};
     let parsedViewingSchedule = [];
@@ -186,7 +184,6 @@ const createPropertyUnit = async (req, res) => {
       parsedUnitFeatures = unitFeatures ? JSON.parse(unitFeatures) : [];
       parsedRentalDetails = rentalDetails ? JSON.parse(rentalDetails) : {};
       parsedCoordinates = coordinates ? JSON.parse(coordinates) : {};
-      parsedAgentDetails = agentDetails ? JSON.parse(agentDetails) : {};
       parsedOwnerDetails = ownerDetails ? JSON.parse(ownerDetails) : {};
       parsedLegalDetails = legalDetails ? JSON.parse(legalDetails) : {};
       parsedViewingSchedule = viewingSchedule ? JSON.parse(viewingSchedule) : [];
@@ -305,7 +302,6 @@ const createPropertyUnit = async (req, res) => {
       // Additional Info
       virtualTour,
       floorPlan: parsedFloorPlan,
-      agentDetails: parsedAgentDetails,
       ownerDetails: parsedOwnerDetails,
       legalDetails: parsedLegalDetails,
       viewingSchedule: parsedViewingSchedule,
@@ -403,7 +399,6 @@ const createPropertyUnit = async (req, res) => {
     });
   }
 };
-
 // Get all property units
 const getPropertyUnits = async (req, res) => {
   try {

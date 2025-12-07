@@ -30,7 +30,7 @@ const propertyUnitSchema = new mongoose.Schema(
 
     // Price
     price: {
-      amount: { type: Number, required: true },
+      amount: { type:String, required: true },
       currency: { type: String, default: "INR" },
       perUnit: { 
         type: String, 
@@ -208,19 +208,9 @@ const propertyUnitSchema = new mongoose.Schema(
     
     // 🌐 WEBSITE ASSIGNMENT
     websiteAssignment: {
-      type: [{
-        type: String,
-        enum: ["cleartitle", "saimr", "both"]
-      }],
+      type: [String],
       default: ["cleartitle"], // Default to cleartitle only
       required: true,
-      validate: {
-        validator: function(v) {
-          // Don't allow duplicate values
-          return new Set(v).size === v.length;
-        },
-        message: "Website assignments must be unique"
-      }
     },
     
     // Rejection Reason (for admin use)
@@ -243,45 +233,6 @@ const propertyUnitSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
-    },
-
-    // 🏢 Agent Information (Enhanced)
-    agentDetails: {
-      agentId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Agent",
-      },
-      name: {
-        type: String,
-        trim: true
-      },
-      phoneNumber: {
-        type: String,
-        trim: true
-      },
-      alternativePhoneNumber: {
-        type: String,
-        trim: true
-      },
-      email: {
-        type: String,
-        trim: true,
-        lowercase: true
-      },
-      company: {
-        type: String,
-        trim: true
-      },
-      languages: [{
-        type: String,
-        trim: true
-      }],
-      officeAddress: {
-        street: String,
-        city: String,
-        state: String,
-        pincode: String
-      }
     },
     
     // 👤 Owner Information
@@ -358,15 +309,6 @@ propertyUnitSchema.virtual('fullAddress').get(function() {
   return `${address}, ${this.city}`;
 });
 
-// Virtual for website display status
-propertyUnitSchema.virtual('isOnCleartitle').get(function() {
-  return this.websiteAssignment.includes('cleartitle') || this.websiteAssignment.includes('both');
-});
-
-propertyUnitSchema.virtual('isOnSaimr').get(function() {
-  return this.websiteAssignment.includes('saimr') || this.websiteAssignment.includes('both');
-});
-
 // Indexes for better performance
 propertyUnitSchema.index({ city: 1, price: 1 });
 propertyUnitSchema.index({ "specifications.bedrooms": 1, "specifications.bathrooms": 1 });
@@ -378,7 +320,6 @@ propertyUnitSchema.index({ isVerified: 1 });
 propertyUnitSchema.index({ listingType: 1 });
 propertyUnitSchema.index({ slug: 1 }, { unique: true });
 propertyUnitSchema.index({ createdBy: 1 });
-propertyUnitSchema.index({ "agentDetails.agentId": 1 });
 
 // Pre-save middleware to generate slug
 propertyUnitSchema.pre('save', function(next) {
@@ -401,28 +342,6 @@ propertyUnitSchema.pre('save', function(next) {
   
   next();
 });
-
-// Pre-save middleware to handle "both" website assignment
-propertyUnitSchema.pre('save', function(next) {
-  if (this.websiteAssignment && this.websiteAssignment.includes('both')) {
-    // If "both" is present, remove individual assignments
-    this.websiteAssignment = ['both'];
-  }
-  next();
-});
-
-// Method to check if property is visible on a specific website
-propertyUnitSchema.methods.isVisibleOnWebsite = function(website) {
-  if (!['cleartitle', 'saimr'].includes(website)) {
-    return false;
-  }
-  
-  if (this.websiteAssignment.includes('both')) {
-    return true;
-  }
-  
-  return this.websiteAssignment.includes(website);
-};
 
 // Method to get status badge color
 propertyUnitSchema.methods.getStatusBadge = function() {
