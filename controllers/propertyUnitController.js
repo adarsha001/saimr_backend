@@ -479,7 +479,7 @@ const getPropertyUnits = async (req, res) => {
       if (maxArea) filter['specifications.carpetArea'].$lte = Number(maxArea);
     }
     
-    // Search filter (searches in title, description, address, city, building name, AND mapUrl)
+    // Search filter
     if (search) {
       filter.$or = [
         { title: { $regex: search, $options: 'i' } },
@@ -487,7 +487,7 @@ const getPropertyUnits = async (req, res) => {
         { address: { $regex: search, $options: 'i' } },
         { city: { $regex: search, $options: 'i' } },
         { 'buildingDetails.name': { $regex: search, $options: 'i' } },
-        { mapUrl: { $regex: search, $options: 'i' } } // Added: Search in mapUrl too
+        { mapUrl: { $regex: search, $options: 'i' } }
       ];
     }
     
@@ -506,7 +506,8 @@ const getPropertyUnits = async (req, res) => {
     const validSortFields = [
       'createdAt', 'updatedAt', 'title', 'city', 
       'specifications.bedrooms', 'specifications.carpetArea',
-      'isFeatured', 'isVerified', 'availability'
+      'isFeatured', 'isVerified', 'availability',
+      'price', 'listingType'
     ];
     
     if (validSortFields.includes(sortBy)) {
@@ -516,9 +517,14 @@ const getPropertyUnits = async (req, res) => {
     }
     
     // Special case for featured properties - show featured first
-    if (sortBy === 'createdAt') {
+    if (sortBy === 'createdAt' || sortBy === 'price') {
       sort.isFeatured = -1; // Featured properties first
     }
+
+    // Debug logging
+    console.log('Sort configuration:', sort);
+    console.log('Filter:', filter);
+    console.log('Skip:', skip, 'Limit:', limit);
 
     // Execute query
     const propertyUnits = await PropertyUnit.find(filter)
@@ -527,7 +533,7 @@ const getPropertyUnits = async (req, res) => {
       .limit(Number(limit))
       .populate('createdBy', 'name email phoneNumber avatar')
       .populate('parentProperty', 'name title images')
-      .lean(); // Use lean() for better performance
+      .lean();
 
     // Get total count
     const total = await PropertyUnit.countDocuments(filter);
