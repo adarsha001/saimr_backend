@@ -27,7 +27,7 @@ const propertyUnitSchema = new mongoose.Schema(
     city: { type: String, required: true },
     address: { type: String, required: true },
     coordinates: { latitude: Number, longitude: Number },
-
+ mapUrl: { type: String }, 
     // Price
     price: {
       amount: { type:String, required: true },

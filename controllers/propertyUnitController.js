@@ -25,7 +25,7 @@ const createPropertyUnit = async (req, res) => {
       city,
       address,
       coordinates,
-      
+         mapUrl, 
       // Price
       price,
       maintenanceCharges,
@@ -241,7 +241,7 @@ const createPropertyUnit = async (req, res) => {
       city,
       address,
       coordinates: parsedCoordinates,
-      
+      mapUrl: mapUrl ? mapUrl.trim() : undefined, 
       // Price
       price: parsedPrice,
       maintenanceCharges: maintenanceCharges || 0,
@@ -399,18 +399,32 @@ const createPropertyUnit = async (req, res) => {
     });
   }
 };
+
+
 // Get all property units
 const getPropertyUnits = async (req, res) => {
   try {
     const {
       city,
       propertyType,
-      minPrice,
-      maxPrice,
       bedrooms,
+      bathrooms,
+      minArea,
+      maxArea,
+      furnishing,
+      possessionStatus,
+      kitchenType,
       listingType,
+      availability,
+      isFeatured,
+      isVerified,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
       page = 1,
-      limit = 10
+      limit = 10,
+      search,
+      approvalStatus,
+      createdBy
     } = req.query;
 
     // Build filter
@@ -420,37 +434,109 @@ const getPropertyUnits = async (req, res) => {
     if (!req.user || (req.user.userType !== 'admin' && req.user.userType !== 'superadmin')) {
       filter.approvalStatus = 'approved';
       filter.availability = 'available';
+    } else {
+      // Admin can see all properties with any approval status
+      if (approvalStatus) {
+        filter.approvalStatus = approvalStatus;
+      }
+      if (availability) {
+        filter.availability = availability;
+      }
     }
 
-    // Apply filters
+    // Apply basic filters
     if (city) filter.city = new RegExp(city, 'i');
     if (propertyType) filter.propertyType = propertyType;
     if (listingType) filter.listingType = listingType;
-    
-    // Price filter
-    if (minPrice || maxPrice) {
-      filter['price.amount'] = {};
-      if (minPrice) filter['price.amount'].$gte = Number(minPrice);
-      if (maxPrice) filter['price.amount'].$lte = Number(maxPrice);
+    if (availability && (!req.user || (req.user.userType !== 'admin' && req.user.userType !== 'superadmin'))) {
+      filter.availability = availability;
     }
     
-    // Bedrooms filter
+    // Specifications filters
+    if (furnishing) filter['specifications.furnishing'] = furnishing;
+    if (possessionStatus) filter['specifications.possessionStatus'] = possessionStatus;
+    if (kitchenType) filter['specifications.kitchenType'] = kitchenType;
+    
+    // Status filters (only for admin)
+    if (req.user && (req.user.userType === 'admin' || req.user.userType === 'superadmin')) {
+      if (isFeatured !== undefined) filter.isFeatured = isFeatured === 'true';
+      if (isVerified !== undefined) filter.isVerified = isVerified === 'true';
+    }
+    
+    // Numeric filters
     if (bedrooms) {
       filter['specifications.bedrooms'] = Number(bedrooms);
+    }
+    
+    if (bathrooms) {
+      filter['specifications.bathrooms'] = Number(bathrooms);
+    }
+    
+    // Area filter (carpetArea)
+    if (minArea || maxArea) {
+      filter['specifications.carpetArea'] = {};
+      if (minArea) filter['specifications.carpetArea'].$gte = Number(minArea);
+      if (maxArea) filter['specifications.carpetArea'].$lte = Number(maxArea);
+    }
+    
+    // Search filter (searches in title, description, address, city)
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { address: { $regex: search, $options: 'i' } },
+        { city: { $regex: search, $options: 'i' } },
+        { 'buildingDetails.name': { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    // Filter by creator (for user's own properties)
+    if (createdBy) {
+      filter.createdBy = createdBy;
     }
 
     // Calculate pagination
     const skip = (page - 1) * limit;
 
+    // Sort configuration
+    const sort = {};
+    
+    // Validate sortBy field to prevent injection
+    const validSortFields = [
+      'createdAt', 'updatedAt', 'title', 'city', 
+      'specifications.bedrooms', 'specifications.carpetArea',
+      'isFeatured', 'isVerified', 'availability'
+    ];
+    
+    if (validSortFields.includes(sortBy)) {
+      sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+    } else {
+      sort.createdAt = -1; // Default sort
+    }
+    
+    // Special case for featured properties - show featured first
+    if (sortBy === 'createdAt') {
+      sort.isFeatured = -1; // Featured properties first
+    }
+
     // Execute query
     const propertyUnits = await PropertyUnit.find(filter)
-      .sort({ createdAt: -1 })
+      .sort(sort)
       .skip(skip)
       .limit(Number(limit))
-      .populate('createdBy', 'name email phoneNumber');
+      .populate('createdBy', 'name email phoneNumber avatar')
+      .populate('parentProperty', 'name title images')
+      .lean(); // Use lean() for better performance
 
     // Get total count
     const total = await PropertyUnit.countDocuments(filter);
+
+    // Get available filters for frontend
+    const availableCities = await PropertyUnit.distinct('city', filter);
+    const availablePropertyTypes = await PropertyUnit.distinct('propertyType', filter);
+    const availableBedrooms = await PropertyUnit.distinct('specifications.bedrooms', filter)
+      .sort((a, b) => a - b)
+      .filter(bedroom => bedroom !== undefined);
 
     res.status(200).json({
       success: true,
@@ -458,77 +544,34 @@ const getPropertyUnits = async (req, res) => {
       total,
       totalPages: Math.ceil(total / limit),
       currentPage: Number(page),
-      data: propertyUnits
+      data: propertyUnits,
+      filters: {
+        availableCities,
+        availablePropertyTypes,
+        availableBedrooms,
+        appliedFilters: {
+          city,
+          propertyType,
+          bedrooms,
+          bathrooms,
+          furnishing,
+          possessionStatus,
+          listingType
+        }
+      }
     });
 
   } catch (error) {
     console.error('Get property units error:', error);
     res.status(500).json({
       success: false,
-      message: 'Error fetching property units'
+      message: 'Error fetching property units',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
-// Get single property unit by ID
-const getPropertyUnit = async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    // Find property unit by ID or slug
-    let propertyUnit;
-    if (id.match(/^[0-9a-fA-F]{24}$/)) {
-      // It's an ObjectId
-      propertyUnit = await PropertyUnit.findById(id)
-        .populate('createdBy', 'name email phoneNumber userType')
-        .populate('agentDetails.agentId', 'name email phoneNumber company')
-        .populate('parentProperty', 'title city');
-    } else {
-      // It's a slug
-      propertyUnit = await PropertyUnit.findOne({ slug: id })
-        .populate('createdBy', 'name email phoneNumber userType')
-        .populate('agentDetails.agentId', 'name email phoneNumber company')
-        .populate('parentProperty', 'title city');
-    }
-
-    if (!propertyUnit) {
-      return res.status(404).json({
-        success: false,
-        message: 'Property unit not found'
-      });
-    }
-
-    // Check if user can view (non-approved properties only visible to admins/owners)
-    const canView = propertyUnit.approvalStatus === 'approved' ||
-                   req.user?._id?.equals(propertyUnit.createdBy) ||
-                   req.user?.userType === 'admin' ||
-                   req.user?.userType === 'superadmin';
-
-    if (!canView) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have permission to view this property unit'
-      });
-    }
-
-    // Increment view count
-    propertyUnit.viewCount += 1;
-    await propertyUnit.save({ validateBeforeSave: false });
-
-    res.status(200).json({
-      success: true,
-      data: propertyUnit
-    });
-
-  } catch (error) {
-    console.error('Get property unit error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching property unit'
-    });
-  }
-};
-
+   
 // Update property unit
 const updatePropertyUnit = async (req, res) => {
   try {
