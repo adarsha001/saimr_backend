@@ -423,7 +423,7 @@ const getPropertyUnits = async (req, res) => {
       sortOrder = 'desc',
       page = 1,
       limit = 10,
-      search,
+      search: searchQuery, // Renamed to avoid conflict
       approvalStatus,
       createdBy
     } = req.query;
@@ -504,9 +504,9 @@ const getPropertyUnits = async (req, res) => {
       }
     }
     
-    // Search filter
-    if (search && search.trim() !== '') {
-      const searchRegex = new RegExp(search.trim(), 'i');
+    // Search filter - using searchQuery instead of search
+    if (searchQuery && searchQuery.trim() !== '') {
+      const searchRegex = new RegExp(searchQuery.trim(), 'i');
       filter.$or = [
         { title: searchRegex },
         { description: searchRegex },
@@ -527,8 +527,7 @@ const getPropertyUnits = async (req, res) => {
     const limitNum = Math.min(Math.max(1, parseInt(limit) || 10), 100);
     const skip = (pageNum - 1) * limitNum;
 
-    // **CRITICAL FIX: Build sort object correctly**
-    // First, create a clean sort object
+    // Build sort object
     let sort = {};
     
     // Define allowed sort fields
@@ -553,7 +552,7 @@ const getPropertyUnits = async (req, res) => {
     // Set the sort field
     sort[sortField] = sortDirection;
     
-    // **Important: Only add isFeatured to sort if we're not already sorting by it**
+    // Only add isFeatured to sort if we're not already sorting by it
     if (sortField !== 'isFeatured') {
       sort.isFeatured = -1; // Show featured first
     }
