@@ -421,8 +421,8 @@ const getPropertyUnits = async (req, res) => {
       isVerified,
       sortBy = 'createdAt',
       sortOrder = 'desc',
-      page = 1,
-      limit = 10,
+      page = 10,
+      limit = 200,
       search: searchQuery, // Renamed to avoid conflict
       approvalStatus,
       createdBy
