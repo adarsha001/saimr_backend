@@ -957,10 +957,25 @@ const getPropertyUnitById = async (req, res) => {
       $inc: { viewCount: 1 } 
     }).exec();
 
+    // FIXED: Handle price as string and convert to number for calculations
     // Calculate price per sqft if not already in price object
-    if (propertyUnit.price.perUnit === 'total' && propertyUnit.specifications.carpetArea > 0) {
-      const pricePerSqft = propertyUnit.price.amount / propertyUnit.specifications.carpetArea;
-      propertyUnit.pricePerSqft = Math.round(pricePerSqft);
+    if (propertyUnit.price && propertyUnit.specifications && propertyUnit.specifications.carpetArea) {
+      try {
+        // Convert price amount to number safely
+        const priceAmount = parseFloat(propertyUnit.price.amount) || 0;
+        const carpetArea = parseFloat(propertyUnit.specifications.carpetArea) || 0;
+        
+        if (priceAmount > 0 && carpetArea > 0) {
+          const pricePerSqft = priceAmount / carpetArea;
+          propertyUnit.pricePerSqft = Math.round(pricePerSqft);
+          
+          // Also convert price amount to number for frontend use
+          propertyUnit.price.amount = priceAmount;
+        }
+      } catch (error) {
+        console.error("Error calculating price per sqft:", error);
+        propertyUnit.pricePerSqft = null;
+      }
     }
 
     // Format response
@@ -970,14 +985,14 @@ const getPropertyUnitById = async (req, res) => {
         ...propertyUnit,
         // Add virtual fields
         fullAddress: propertyUnit.unitNumber 
-          ? `${propertyUnit.unitNumber}, ${propertyUnit.address}, ${propertyUnit.city}`
-          : `${propertyUnit.address}, ${propertyUnit.city}`,
+          ? `${propertyUnit.unitNumber}, ${propertyUnit.address || ''}, ${propertyUnit.city || ''}`.replace(/\s*,\s*,/g, ',').replace(/,\s*$/, '')
+          : `${propertyUnit.address || ''}, ${propertyUnit.city || ''}`.replace(/\s*,\s*,/g, ',').replace(/,\s*$/, ''),
         
         // Add status badges for frontend
         status: {
-          isFeatured: propertyUnit.isFeatured,
-          isVerified: propertyUnit.isVerified,
-          availability: propertyUnit.availability
+          isFeatured: propertyUnit.isFeatured || false,
+          isVerified: propertyUnit.isVerified || false,
+          availability: propertyUnit.availability || 'available'
         }
       }
     };
@@ -985,6 +1000,7 @@ const getPropertyUnitById = async (req, res) => {
     res.status(200).json(response);
   } catch (error) {
     console.error("Get property unit by ID error:", error);
+    console.error("Error stack:", error.stack);
     
     // Handle specific errors
     if (error.name === 'CastError') {
