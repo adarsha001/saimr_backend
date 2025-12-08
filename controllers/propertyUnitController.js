@@ -822,11 +822,191 @@ const deletePropertyUnit = async (req, res) => {
     });
   }
 };
+const getPropertyUnitById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Validate ID format
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid property unit ID format"
+      });
+    }
+
+    // Select only necessary fields for public display
+    // Exclude sensitive information like owner details, approval status, etc.
+    const selectFields = {
+      // Basic Information
+      title: 1,
+      description: 1,
+      unitNumber: 1,
+      images: 1,
+      
+      // Location
+      city: 1,
+      address: 1,
+      coordinates: 1,
+      mapUrl: 1,
+      
+      // Price
+      price: 1,
+      maintenanceCharges: 1,
+      securityDeposit: 1,
+      
+      // Unit Type
+      propertyType: 1,
+      
+      // Specifications
+      specifications: {
+        bedrooms: 1,
+        bathrooms: 1,
+        balconies: 1,
+        floorNumber: 1,
+        carpetArea: 1,
+        builtUpArea: 1,
+        superBuiltUpArea: 1,
+        plotArea: 1,
+        furnishing: 1,
+        possessionStatus: 1,
+        ageOfProperty: 1,
+        parking: {
+          covered: 1,
+          open: 1
+        },
+        kitchenType: 1
+      },
+      
+      // Building Details
+      buildingDetails: {
+        name: 1,
+        totalFloors: 1,
+        totalUnits: 1,
+        yearBuilt: 1,
+        amenities: 1
+      },
+      
+      // Unit Features
+      unitFeatures: 1,
+      
+      // Rental Details (only public info)
+      rentalDetails: {
+        availableForRent: 1,
+        leaseDuration: 1,
+        rentNegotiable: 1,
+        preferredTenants: 1,
+        includedInRent: 1
+      },
+      
+      // Availability & Status
+      availability: 1,
+      isFeatured: 1,
+      isVerified: 1,
+      listingType: 1,
+      
+      // Virtual Tour
+      virtualTour: 1,
+      
+      // Floor Plan
+      floorPlan: 1,
+      
+      // Legal Details (only non-sensitive)
+      legalDetails: {
+        ownershipType: 1,
+        reraRegistered: 1,
+        reraNumber: 1,
+        khataCertificate: 1,
+        encumbranceCertificate: 1,
+        occupancyCertificate: 1
+      },
+      
+      // Viewing & Contact
+      viewingSchedule: 1,
+      contactPreference: 1,
+      
+      // Statistics
+      viewCount: 1,
+      favoriteCount: 1,
+      
+      // SEO
+      slug: 1,
+      createdAt: 1,
+      updatedAt: 1
+    };
+
+    // Find property unit - only show approved and available units
+    const propertyUnit = await PropertyUnit.findOne({
+      _id: id,
+      approvalStatus: "approved",
+      availability: "available"
+    })
+      .select(selectFields)
+      .populate("parentProperty", "name title images")
+      .populate("createdBy", "name email phoneNumber avatar -_id") // Only basic creator info
+      .lean();
+
+    if (!propertyUnit) {
+      return res.status(404).json({
+        success: false,
+        message: "Property unit not found or not available"
+      });
+    }
+
+    // Increment view count asynchronously (don't wait for this)
+    PropertyUnit.findByIdAndUpdate(id, { 
+      $inc: { viewCount: 1 } 
+    }).exec();
+
+    // Calculate price per sqft if not already in price object
+    if (propertyUnit.price.perUnit === 'total' && propertyUnit.specifications.carpetArea > 0) {
+      const pricePerSqft = propertyUnit.price.amount / propertyUnit.specifications.carpetArea;
+      propertyUnit.pricePerSqft = Math.round(pricePerSqft);
+    }
+
+    // Format response
+    const response = {
+      success: true,
+      data: {
+        ...propertyUnit,
+        // Add virtual fields
+        fullAddress: propertyUnit.unitNumber 
+          ? `${propertyUnit.unitNumber}, ${propertyUnit.address}, ${propertyUnit.city}`
+          : `${propertyUnit.address}, ${propertyUnit.city}`,
+        
+        // Add status badges for frontend
+        status: {
+          isFeatured: propertyUnit.isFeatured,
+          isVerified: propertyUnit.isVerified,
+          availability: propertyUnit.availability
+        }
+      }
+    };
+
+    res.status(200).json(response);
+  } catch (error) {
+    console.error("Get property unit by ID error:", error);
+    
+    // Handle specific errors
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid property unit ID"
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: "Error fetching property unit",
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
 
 module.exports = {
   createPropertyUnit,
   getPropertyUnits,
-
+getPropertyUnitById,
   updatePropertyUnit,
   deletePropertyUnit
 };

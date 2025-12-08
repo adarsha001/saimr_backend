@@ -3,7 +3,7 @@ const router = express.Router();
 const {
   createPropertyUnit,
   getPropertyUnits,
-  // getPropertyUnit,
+  getPropertyUnitById,
   updatePropertyUnit,
   deletePropertyUnit
 } = require("../controllers/propertyUnitController");
@@ -12,7 +12,7 @@ const upload = require("../middlewares/multer");
 
 // Public routes
 router.get("/", getPropertyUnits);
-// router.get("/:id", getPropertyUnit);
+router.get("/:id", getPropertyUnitById);
 
 // Protected routes
 router.use(protect);
