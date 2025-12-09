@@ -1,7 +1,7 @@
 const PropertyUnit = require("../models/PropertyUnit");
 const User = require("../models/user");
 const cloudinary = require("../config/cloudinary");
-
+const mongoose = require('mongoose');
 const createPropertyUnit = async (req, res) => {
   try {
     console.log('User making request:', req.user); // Debug log
