@@ -368,6 +368,7 @@ const createPropertyn = async (req, res) => {
   }
 };
 
+// In your backend controller (getProperties function)
 const getProperties = async (req, res) => {
   try {
     const {
@@ -378,23 +379,26 @@ const getProperties = async (req, res) => {
       forSale,
       isFeatured,
       isVerified,
-      website = "cleartitle", // Default to cleartitle (parent)
+      website = "cleartitle",
       page = 1,
-      limit = 1000,
+      limit = 12, // Reduced from 1000 to 12 for better performance
       sortBy = 'displayOrder',
       sortOrder = 'asc',
       search
     } = req.query;
 
+    // Convert to numbers
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 12;
+    const skip = (pageNum - 1) * limitNum;
+
     // Build filter object - only show approved properties
     const filter = { approvalStatus: 'approved' };
     
-    // 🌐 WEBSITE FILTERING LOGIC - SIMPLIFIED
+    // 🌐 WEBSITE FILTERING LOGIC
     if (website === "cleartitle") {
-      // Cleartitle shows properties with "cleartitle" or "both" in websiteAssignment
       filter.websiteAssignment = { $in: ["cleartitle", "both"] };
     } else if (website === "saimr") {
-      // Saimr shows properties with "saimr" or "both" in websiteAssignment
       filter.websiteAssignment = { $in: ["saimr", "both"] };
     }
     
@@ -430,21 +434,28 @@ const getProperties = async (req, res) => {
     const sortOptions = {};
     sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
+    // Get total count first
+    const total = await Property.countDocuments(filter);
+
+    // Get paginated data
     const properties = await Property.find(filter)
       .populate('createdBy', 'name username gmail phoneNumber')
       .sort(sortOptions)
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+      .limit(limitNum)
+      .skip(skip);
 
-    const total = await Property.countDocuments(filter);
+    const totalPages = Math.ceil(total / limitNum);
 
     res.status(200).json({
       success: true,
       properties,
-      totalPages: Math.ceil(total / limit),
-      currentPage: page,
+      totalPages,
+      currentPage: pageNum,
       total,
-      website // Return which website filter was applied
+      limit: limitNum,
+      hasNextPage: pageNum < totalPages,
+      hasPrevPage: pageNum > 1,
+      website
     });
   } catch (error) {
     console.error("Error fetching properties:", error);
@@ -455,7 +466,6 @@ const getProperties = async (req, res) => {
     });
   }
 };
-
 // Assign properties to websites (bulk) - SIMPLIFIED
 const assignPropertiesToWebsites = async (req, res) => {
   try {
