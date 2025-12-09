@@ -834,151 +834,36 @@ const getPropertyUnitById = async (req, res) => {
       });
     }
 
-    // Select only necessary fields for public display
-    // Exclude sensitive information like owner details, approval status, etc.
-    const selectFields = {
-      // Basic Information
-      title: 1,
-      description: 1,
-      unitNumber: 1,
-      images: 1,
-      
-      // Location
-      city: 1,
-      address: 1,
-      coordinates: 1,
-      mapUrl: 1,
-      
-      // Price
-      price: 1,
-      maintenanceCharges: 1,
-      securityDeposit: 1,
-      
-      // Unit Type
-      propertyType: 1,
-      
-      // Specifications
-      specifications: {
-        bedrooms: 1,
-        bathrooms: 1,
-        balconies: 1,
-        floorNumber: 1,
-        carpetArea: 1,
-        builtUpArea: 1,
-        superBuiltUpArea: 1,
-        plotArea: 1,
-        furnishing: 1,
-        possessionStatus: 1,
-        ageOfProperty: 1,
-        parking: {
-          covered: 1,
-          open: 1
-        },
-        kitchenType: 1
-      },
-      
-      // Building Details
-      buildingDetails: {
-        name: 1,
-        totalFloors: 1,
-        totalUnits: 1,
-        yearBuilt: 1,
-        amenities: 1
-      },
-      
-      // Unit Features
-      unitFeatures: 1,
-      
-      // Rental Details (only public info)
-      rentalDetails: {
-        availableForRent: 1,
-        leaseDuration: 1,
-        rentNegotiable: 1,
-        preferredTenants: 1,
-        includedInRent: 1
-      },
-      
-      // Availability & Status
-      availability: 1,
-      isFeatured: 1,
-      isVerified: 1,
-      listingType: 1,
-      
-      // Virtual Tour
-      virtualTour: 1,
-      
-      // Floor Plan
-      floorPlan: 1,
-      
-      // Legal Details (only non-sensitive)
-      legalDetails: {
-        ownershipType: 1,
-        reraRegistered: 1,
-        reraNumber: 1,
-        khataCertificate: 1,
-        encumbranceCertificate: 1,
-        occupancyCertificate: 1
-      },
-      
-      // Viewing & Contact
-      viewingSchedule: 1,
-      contactPreference: 1,
-      
-      // Statistics
-      viewCount: 1,
-      favoriteCount: 1,
-      
-      // SEO
-      slug: 1,
-      createdAt: 1,
-      updatedAt: 1
-    };
+    console.log("Searching for property unit with ID:", id); // Debug log
 
-    // Find property unit - only show approved and available units
+    // Find property unit - remove approvalStatus filter temporarily for debugging
     const propertyUnit = await PropertyUnit.findOne({
-      _id: id,
-      approvalStatus: "approved",
-      availability: "available"
+      _id: id
+      // Remove filters temporarily:
+      // approvalStatus: "approved",
+      // availability: "available"
     })
-      .select(selectFields)
       .populate("parentProperty", "name title images")
-      .populate("createdBy", "name email phoneNumber avatar -_id") // Only basic creator info
+      .populate("createdBy", "name email phoneNumber avatar")
       .lean();
+
+    console.log("Found property unit:", propertyUnit ? "Yes" : "No"); // Debug log
 
     if (!propertyUnit) {
       return res.status(404).json({
         success: false,
-        message: "Property unit not found or not available"
+        message: "Property unit not found"
       });
     }
 
-    // Increment view count asynchronously (don't wait for this)
+    // Increment view count asynchronously
     PropertyUnit.findByIdAndUpdate(id, { 
       $inc: { viewCount: 1 } 
     }).exec();
 
-    // FIXED: Handle price as string and convert to number for calculations
-    // Calculate price per sqft if not already in price object
-    if (propertyUnit.price && propertyUnit.specifications && propertyUnit.specifications.carpetArea) {
-      try {
-        // Convert price amount to number safely
-        const priceAmount = parseFloat(propertyUnit.price.amount) || 0;
-        const carpetArea = parseFloat(propertyUnit.specifications.carpetArea) || 0;
-        
-        if (priceAmount > 0 && carpetArea > 0) {
-          const pricePerSqft = priceAmount / carpetArea;
-          propertyUnit.pricePerSqft = Math.round(pricePerSqft);
-          
-          // Also convert price amount to number for frontend use
-          propertyUnit.price.amount = priceAmount;
-        }
-      } catch (error) {
-        console.error("Error calculating price per sqft:", error);
-        propertyUnit.pricePerSqft = null;
-      }
-    }
+    // REMOVED: All price per sqft calculations
 
-    // Format response
+    // Format response - simplified
     const response = {
       success: true,
       data: {
@@ -986,18 +871,13 @@ const getPropertyUnitById = async (req, res) => {
         // Add virtual fields
         fullAddress: propertyUnit.unitNumber 
           ? `${propertyUnit.unitNumber}, ${propertyUnit.address || ''}, ${propertyUnit.city || ''}`.replace(/\s*,\s*,/g, ',').replace(/,\s*$/, '')
-          : `${propertyUnit.address || ''}, ${propertyUnit.city || ''}`.replace(/\s*,\s*,/g, ',').replace(/,\s*$/, ''),
-        
-        // Add status badges for frontend
-        status: {
-          isFeatured: propertyUnit.isFeatured || false,
-          isVerified: propertyUnit.isVerified || false,
-          availability: propertyUnit.availability || 'available'
-        }
+          : `${propertyUnit.address || ''}, ${propertyUnit.city || ''}`.replace(/\s*,\s*,/g, ',').replace(/,\s*$/, '')
       }
     };
 
+    console.log("Sending response for:", response.data.title); // Debug log
     res.status(200).json(response);
+    
   } catch (error) {
     console.error("Get property unit by ID error:", error);
     console.error("Error stack:", error.stack);
@@ -1017,7 +897,6 @@ const getPropertyUnitById = async (req, res) => {
     });
   }
 };
-
 
 module.exports = {
   createPropertyUnit,
