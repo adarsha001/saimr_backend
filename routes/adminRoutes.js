@@ -131,6 +131,22 @@ router.get('/analytics/clicks/summary', getClickAnalytics);
 router.post('/properties/assign-websites', assignPropertiesToWebsites);
 router.get('/properties', getPropertiesForAdmin);
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // Test endpoint
 router.get('/test', (req, res) => {
   res.json({ 

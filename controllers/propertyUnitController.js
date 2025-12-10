@@ -2,9 +2,11 @@ const PropertyUnit = require("../models/PropertyUnit");
 const User = require("../models/user");
 const cloudinary = require("../config/cloudinary");
 const mongoose = require('mongoose');
+
+// Create property unit (Public)
 const createPropertyUnit = async (req, res) => {
   try {
-    console.log('User making request:', req.user); // Debug log
+    console.log('User making request:', req.user);
     
     // Check if user is authenticated
     if (!req.user || !req.user._id) {
@@ -16,47 +18,27 @@ const createPropertyUnit = async (req, res) => {
 
     // Extract all fields from request body
     const {
-      // Basic Information
       title,
       description,
       unitNumber,
-      
-      // Location
       city,
       address,
       coordinates,
-         mapUrl, 
-      // Price
+      mapUrl,
       price,
       maintenanceCharges,
       securityDeposit,
-      
-      // Property Type
       propertyType,
-      
-      // Specifications (as JSON string)
       specifications,
-      
-      // Building Details
       buildingDetails,
-      
-      // Unit Features
       unitFeatures,
-      
-      // Rental Details
       rentalDetails,
-      
-      // Status & Approval
-      approvalStatus, // Will be overridden based on user role
-      isFeatured,     // Will be overridden based on user role
-      isVerified,     // Will be overridden based on user role
+      approvalStatus,
+      isFeatured,
+      isVerified,
       availability,
       listingType,
-      
-      // Website Assignment
       websiteAssignment,
-      
-      // Additional Info
       virtualTour,
       floorPlan,
       ownerDetails,
@@ -66,11 +48,7 @@ const createPropertyUnit = async (req, res) => {
       metaTitle,
       metaDescription,
       displayOrder,
-      
-      // Parent Property
       parentProperty,
-      
-      // Rejection
       rejectionReason,
     } = req.body;
 
@@ -105,34 +83,30 @@ const createPropertyUnit = async (req, res) => {
     // SECURITY: Determine sensitive fields based on user role
     const isAdminUser = req.user.isAdmin || req.user.userType === 'superadmin' || req.user.userType === 'admin';
     
-    let finalApprovalStatus = "pending"; // Default for regular users
-    let finalIsFeatured = false; // Default for regular users
-    let finalIsVerified = false; // Default for regular users
+    let finalApprovalStatus = "pending";
+    let finalIsFeatured = false;
+    let finalIsVerified = false;
 
     // Only allow admin users to set these sensitive fields
     if (isAdminUser) {
-      // Admin can set approvalStatus
       if (approvalStatus && ["pending", "approved", "rejected"].includes(approvalStatus)) {
         finalApprovalStatus = approvalStatus;
       }
       
-      // Admin can set isFeatured
       if (isFeatured !== undefined) {
         finalIsFeatured = isFeatured === 'true' || isFeatured === true;
       }
       
-      // Admin can set isVerified
       if (isVerified !== undefined) {
         finalIsVerified = isVerified === 'true' || isVerified === true;
       }
     }
-    // For non-admin users, always use default values regardless of what they send
+    // For non-admin users, always use default values
     else {
       finalApprovalStatus = "pending";
       finalIsFeatured = false;
       finalIsVerified = false;
       
-      // Log attempted security breach
       if (approvalStatus === "approved" || isFeatured === true || isFeatured === 'true' || isVerified === true || isVerified === 'true') {
         console.warn(`Security Alert: User ${req.user._id} attempted to set privileged fields without authorization`);
       }
@@ -230,27 +204,19 @@ const createPropertyUnit = async (req, res) => {
     const validListingTypes = ["sale", "rent", "lease", "pg"];
     const finalListingType = listingType && validListingTypes.includes(listingType) ? listingType : "sale";
 
-    // Create new property unit with SECURED fields
+    // Create new property unit
     const newPropertyUnit = new PropertyUnit({
-      // Basic Information
       title,
       description,
       unitNumber,
-      
-      // Location
       city,
       address,
       coordinates: parsedCoordinates,
-      mapUrl: mapUrl ? mapUrl.trim() : undefined, 
-      // Price
+      mapUrl: mapUrl ? mapUrl.trim() : undefined,
       price: parsedPrice,
       maintenanceCharges: maintenanceCharges || 0,
       securityDeposit: securityDeposit || 0,
-      
-      // Property Type
       propertyType,
-      
-      // Specifications
       specifications: {
         bedrooms: parsedSpecifications.bedrooms || 0,
         bathrooms: parsedSpecifications.bathrooms || 0,
@@ -270,14 +236,8 @@ const createPropertyUnit = async (req, res) => {
         },
         kitchenType: parsedSpecifications.kitchenType || "regular"
       },
-      
-      // Building Details
       buildingDetails: parsedBuildingDetails,
-      
-      // Unit Features
       unitFeatures: parsedUnitFeatures,
-      
-      // Rental Details
       rentalDetails: {
         availableForRent: parsedRentalDetails.availableForRent || (finalListingType === 'rent' || finalListingType === 'lease'),
         leaseDuration: parsedRentalDetails.leaseDuration || { value: 11, unit: "months" },
@@ -285,21 +245,13 @@ const createPropertyUnit = async (req, res) => {
         preferredTenants: parsedRentalDetails.preferredTenants || ["any"],
         includedInRent: parsedRentalDetails.includedInRent || []
       },
-      
-      // Status & Approval
       approvalStatus: finalApprovalStatus,
       isFeatured: finalIsFeatured,
       isVerified: finalIsVerified,
       availability: availability || "available",
       listingType: finalListingType,
-      
-      // Website Assignment
       websiteAssignment: parsedWebsiteAssignment,
-      
-      // Images
       images: uploadedImages,
-      
-      // Additional Info
       virtualTour,
       floorPlan: parsedFloorPlan,
       ownerDetails: parsedOwnerDetails,
@@ -309,26 +261,18 @@ const createPropertyUnit = async (req, res) => {
       metaTitle,
       metaDescription,
       displayOrder: displayOrder || 0,
-      
-      // Parent Property
       parentProperty,
-      
-      // Rejection
       rejectionReason: isAdminUser ? rejectionReason : "",
-      
-      // Creator
       createdBy: req.user._id,
     });
 
     // Save the property unit
     await newPropertyUnit.save();
     
-    // ============ ADDED: Update user's postedProperties array ============
+    // Update user's postedProperties array
     try {
-      // Find the user and update their postedProperties array
       const foundUser = await User.findById(req.user._id);
       if (foundUser) {
-        // Check if property unit already exists in postedProperties (shouldn't, but just in case)
         const alreadyExists = foundUser.postedProperties.some(
           item => item.property && item.property.toString() === newPropertyUnit._id.toString()
         );
@@ -342,7 +286,6 @@ const createPropertyUnit = async (req, res) => {
           });
           await foundUser.save();
           console.log(`Property unit ${newPropertyUnit._id} added to user ${foundUser._id}'s postedProperties`);
-          console.log('User postedProperties after update:', foundUser.postedProperties); // Debug log
         } else {
           console.log(`Property unit ${newPropertyUnit._id} already exists in user's postedProperties`);
         }
@@ -351,14 +294,10 @@ const createPropertyUnit = async (req, res) => {
       }
     } catch (userUpdateError) {
       console.error('Error updating user postedProperties:', userUpdateError);
-      // Don't fail the whole request if this fails, just log it
     }
-    // ============ END OF ADDED CODE ============
     
-    // Populate with correct field names
     await newPropertyUnit.populate('createdBy', 'name username email phoneNumber');
 
-    // Dynamic success message based on approval status
     const successMessage = finalApprovalStatus === "approved" 
       ? "Property unit added successfully and approved! It is now live on the platform."
       : "Property unit added successfully! It will be visible after admin approval.";
@@ -366,15 +305,11 @@ const createPropertyUnit = async (req, res) => {
     res.status(201).json({
       success: true,
       message: successMessage,
-      propertyUnit: {
-        ...newPropertyUnit.toObject(),
-        // Don't send sensitive info about what was attempted vs what was set
-      },
+      propertyUnit: newPropertyUnit.toObject(),
     });
   } catch (error) {
     console.error('Property unit creation error:', error);
     
-    // Handle validation errors
     if (error.name === 'ValidationError') {
       const errors = Object.values(error.errors).map(err => err.message);
       return res.status(400).json({
@@ -384,7 +319,6 @@ const createPropertyUnit = async (req, res) => {
       });
     }
 
-    // Handle duplicate slug error
     if (error.code === 11000 && error.keyPattern && error.keyPattern.slug) {
       return res.status(400).json({
         success: false,
@@ -400,9 +334,7 @@ const createPropertyUnit = async (req, res) => {
   }
 };
 
-
-// Get all property units
-// In propertyUnitController.js
+// Get all property units (Public)
 const getPropertyUnits = async (req, res) => {
   try {
     const {
@@ -423,7 +355,7 @@ const getPropertyUnits = async (req, res) => {
       sortOrder = 'desc',
       page = 10,
       limit = 200,
-      search: searchQuery, // Renamed to avoid conflict
+      search: searchQuery,
       approvalStatus,
       createdBy
     } = req.query;
@@ -439,7 +371,6 @@ const getPropertyUnits = async (req, res) => {
       filter.approvalStatus = 'approved';
       filter.availability = 'available';
     } else {
-      // Admin can see all properties
       if (approvalStatus) {
         filter.approvalStatus = approvalStatus;
       }
@@ -504,7 +435,7 @@ const getPropertyUnits = async (req, res) => {
       }
     }
     
-    // Search filter - using searchQuery instead of search
+    // Search filter
     if (searchQuery && searchQuery.trim() !== '') {
       const searchRegex = new RegExp(searchQuery.trim(), 'i');
       filter.$or = [
@@ -530,7 +461,6 @@ const getPropertyUnits = async (req, res) => {
     // Build sort object
     let sort = {};
     
-    // Define allowed sort fields
     const allowedSortFields = {
       'createdAt': 'createdAt',
       'updatedAt': 'updatedAt',
@@ -545,26 +475,18 @@ const getPropertyUnits = async (req, res) => {
       'carpetArea': 'specifications.carpetArea'
     };
 
-    // Get the sort field from allowed fields or default to createdAt
     const sortField = allowedSortFields[sortBy] || 'createdAt';
     const sortDirection = sortOrder === 'asc' ? 1 : -1;
     
-    // Set the sort field
     sort[sortField] = sortDirection;
     
-    // Only add isFeatured to sort if we're not already sorting by it
     if (sortField !== 'isFeatured') {
-      sort.isFeatured = -1; // Show featured first
+      sort.isFeatured = -1;
     }
-
-    console.log('Sort configuration:', JSON.stringify(sort));
-    console.log('Filter:', JSON.stringify(filter));
-    console.log('Skip:', skip, 'Limit:', limitNum);
 
     // Execute query
     const query = PropertyUnit.find(filter);
     
-    // Apply sort - ensure it's a valid object
     if (Object.keys(sort).length > 0) {
       query.sort(sort);
     }
@@ -619,7 +541,78 @@ const getPropertyUnits = async (req, res) => {
     });
   }
 };
-// Update property unit
+
+// Get property unit by ID (Public)
+const getPropertyUnitById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Validate ID format
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid property unit ID format"
+      });
+    }
+
+    console.log("Searching for property unit with ID:", id);
+
+    // Find property unit
+    const propertyUnit = await PropertyUnit.findOne({
+      _id: id
+    })
+      .populate("parentProperty", "name title images")
+      .populate("createdBy", "name email phoneNumber avatar")
+      .lean();
+
+    console.log("Found property unit:", propertyUnit ? "Yes" : "No");
+
+    if (!propertyUnit) {
+      return res.status(404).json({
+        success: false,
+        message: "Property unit not found"
+      });
+    }
+
+    // Increment view count asynchronously
+    PropertyUnit.findByIdAndUpdate(id, { 
+      $inc: { viewCount: 1 } 
+    }).exec();
+
+    // Format response
+    const response = {
+      success: true,
+      data: {
+        ...propertyUnit,
+        fullAddress: propertyUnit.unitNumber 
+          ? `${propertyUnit.unitNumber}, ${propertyUnit.address || ''}, ${propertyUnit.city || ''}`.replace(/\s*,\s*,/g, ',').replace(/,\s*$/, '')
+          : `${propertyUnit.address || ''}, ${propertyUnit.city || ''}`.replace(/\s*,\s*,/g, ',').replace(/,\s*$/, '')
+      }
+    };
+
+    console.log("Sending response for:", response.data.title);
+    res.status(200).json(response);
+    
+  } catch (error) {
+    console.error("Get property unit by ID error:", error);
+    console.error("Error stack:", error.stack);
+    
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid property unit ID"
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: "Error fetching property unit",
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
+
+// Update property unit (Public)
 const updatePropertyUnit = async (req, res) => {
   try {
     const { id } = req.params;
@@ -644,8 +637,149 @@ const updatePropertyUnit = async (req, res) => {
       });
     }
 
-    // Extract update data
-    const updateData = { ...req.body };
+    // Initialize update data
+    let updateData = {};
+    
+    // Extract all fields from form data
+    const fields = [
+      // Basic Information
+      'title', 'description', 'unitNumber',
+      
+      // Location
+      'city', 'address', 'area',
+      
+      // Price
+      'maintenanceCharges', 'securityDeposit',
+      
+      // Unit Category
+      'propertyType', 'listingType',
+      
+      // Status
+      'availability', 'isFeatured', 'isVerified', 'approvalStatus', 'rejectionReason',
+      
+      // Additional
+      'mapUrl', 'virtualTour', 'metaTitle', 'metaDescription', 'displayOrder',
+      
+      // Owner Details
+      'ownerName', 'ownerPhoneNumber', 'ownerEmail', 'ownerReasonForSelling',
+      
+      // Legal
+      'reraRegistered', 'reraNumber', 'khataCertificate', 'encumbranceCertificate',
+      'occupancyCertificate', 'ownershipType',
+      
+      // Contact
+      'contactPreference',
+      
+      // Website
+      'websiteAssignment'
+    ];
+
+    // Process text fields
+    fields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+
+    // Parse JSON fields
+    const parseJSONField = (fieldName) => {
+      if (req.body[fieldName]) {
+        try {
+          return JSON.parse(req.body[fieldName]);
+        } catch (e) {
+          console.error(`Error parsing ${fieldName}:`, e);
+          return req.body[fieldName];
+        }
+      }
+      return undefined;
+    };
+
+    // Handle nested objects
+    const priceData = parseJSONField('price');
+    if (priceData) {
+      updateData.price = priceData;
+    }
+
+    const specificationsData = parseJSONField('specifications');
+    if (specificationsData) {
+      updateData.specifications = specificationsData;
+    }
+
+    const buildingDetailsData = parseJSONField('buildingDetails');
+    if (buildingDetailsData) {
+      updateData.buildingDetails = buildingDetailsData;
+    }
+
+    const unitFeaturesData = parseJSONField('unitFeatures');
+    if (unitFeaturesData) {
+      updateData.unitFeatures = unitFeaturesData;
+    }
+
+    const rentalDetailsData = parseJSONField('rentalDetails');
+    if (rentalDetailsData) {
+      updateData.rentalDetails = rentalDetailsData;
+    }
+
+    const coordinatesData = parseJSONField('coordinates');
+    if (coordinatesData) {
+      updateData.coordinates = coordinatesData;
+    }
+
+    const legalDetailsData = parseJSONField('legalDetails');
+    if (legalDetailsData) {
+      updateData.legalDetails = legalDetailsData;
+    }
+
+    const viewingScheduleData = parseJSONField('viewingSchedule');
+    if (viewingScheduleData) {
+      updateData.viewingSchedule = viewingScheduleData;
+    }
+
+    const floorPlanData = parseJSONField('floorPlan');
+    if (floorPlanData) {
+      updateData.floorPlan = floorPlanData;
+    }
+
+    // Handle owner details as object if separate fields provided
+    if (req.body.ownerName || req.body.ownerPhoneNumber || req.body.ownerEmail) {
+      updateData.ownerDetails = {
+        name: req.body.ownerName || propertyUnit.ownerDetails?.name,
+        phoneNumber: req.body.ownerPhoneNumber || propertyUnit.ownerDetails?.phoneNumber,
+        email: req.body.ownerEmail || propertyUnit.ownerDetails?.email,
+        reasonForSelling: req.body.ownerReasonForSelling || propertyUnit.ownerDetails?.reasonForSelling
+      };
+    }
+
+    // Handle legal details as object if separate fields provided
+    if (req.body.reraRegistered !== undefined || req.body.reraNumber) {
+      updateData.legalDetails = {
+        ...propertyUnit.legalDetails,
+        reraRegistered: req.body.reraRegistered !== undefined ? req.body.reraRegistered : propertyUnit.legalDetails?.reraRegistered,
+        reraNumber: req.body.reraNumber || propertyUnit.legalDetails?.reraNumber,
+        khataCertificate: req.body.khataCertificate !== undefined ? req.body.khataCertificate : propertyUnit.legalDetails?.khataCertificate,
+        encumbranceCertificate: req.body.encumbranceCertificate !== undefined ? req.body.encumbranceCertificate : propertyUnit.legalDetails?.encumbranceCertificate,
+        occupancyCertificate: req.body.occupancyCertificate !== undefined ? req.body.occupancyCertificate : propertyUnit.legalDetails?.occupancyCertificate,
+        ownershipType: req.body.ownershipType || propertyUnit.legalDetails?.ownershipType
+      };
+    }
+
+    // Handle website assignment
+    if (req.body.websiteAssignment) {
+      if (typeof req.body.websiteAssignment === 'string') {
+        updateData.websiteAssignment = req.body.websiteAssignment.split(',');
+      } else if (Array.isArray(req.body.websiteAssignment)) {
+        updateData.websiteAssignment = req.body.websiteAssignment;
+      }
+    }
+
+    // Handle contact preference
+    if (req.body.contactPreference) {
+      if (typeof req.body.contactPreference === 'string') {
+        updateData.contactPreference = req.body.contactPreference.split(',');
+      } else if (Array.isArray(req.body.contactPreference)) {
+        updateData.contactPreference = req.body.contactPreference;
+      }
+    }
 
     // Admin-only fields
     const adminFields = ['approvalStatus', 'isFeatured', 'isVerified', 'rejectionReason'];
@@ -665,61 +799,75 @@ const updatePropertyUnit = async (req, res) => {
       });
     }
 
-    // Handle image uploads if new images are provided
+    // Handle image uploads
     if (req.files && req.files.length > 0) {
       const newImages = [];
+      
+      // Separate regular images from floor plan
       for (let file of req.files) {
         try {
           const result = await cloudinary.uploader.upload(file.path, {
             folder: "property-units",
           });
-          newImages.push({
-            url: result.secure_url,
-            public_id: result.public_id,
-            caption: ""
-          });
+          
+          // Check if this is a floor plan
+          if (file.fieldname === 'floorPlanImage') {
+            updateData.floorPlan = {
+              image: result.secure_url,
+              public_id: result.public_id,
+              description: req.body.floorPlanDescription || ""
+            };
+          } else {
+            newImages.push({
+              url: result.secure_url,
+              public_id: result.public_id,
+              caption: ""
+            });
+          }
         } catch (uploadError) {
           console.error('Cloudinary upload error:', uploadError);
         }
       }
       
-      // Add new images to existing ones
-      if (newImages.length > 0) {
+      // Handle existing images
+      const existingImages = req.body.existingImages;
+      if (existingImages) {
+        let existingImagesArray;
+        try {
+          existingImagesArray = JSON.parse(existingImages);
+        } catch (e) {
+          existingImagesArray = existingImages.split(',');
+        }
+        
+        // Filter out deleted images
+        const filteredImages = propertyUnit.images.filter(img => 
+          existingImagesArray.includes(img.url)
+        );
+        
+        // Add new images
+        updateData.images = [...filteredImages, ...newImages];
+      } else {
+        // Keep all existing images and add new ones
         updateData.images = [...propertyUnit.images, ...newImages];
       }
     }
 
-    // Parse JSON fields if they're strings
-    const parseIfString = (field) => {
-      if (typeof field === 'string') {
-        try {
-          return JSON.parse(field);
-        } catch (e) {
-          return field;
-        }
-      }
-      return field;
-    };
+    // Handle floor plan upload separately if no new floor plan image
+    if (req.body.floorPlanDescription && !updateData.floorPlan) {
+      updateData.floorPlan = {
+        ...propertyUnit.floorPlan,
+        description: req.body.floorPlanDescription
+      };
+    }
 
-    // Parse all potential JSON fields
-    if (updateData.specifications) updateData.specifications = parseIfString(updateData.specifications);
-    if (updateData.buildingDetails) updateData.buildingDetails = parseIfString(updateData.buildingDetails);
-    if (updateData.unitFeatures) updateData.unitFeatures = parseIfString(updateData.unitFeatures);
-    if (updateData.rentalDetails) updateData.rentalDetails = parseIfString(updateData.rentalDetails);
-    if (updateData.coordinates) updateData.coordinates = parseIfString(updateData.coordinates);
-    if (updateData.agentDetails) updateData.agentDetails = parseIfString(updateData.agentDetails);
-    if (updateData.ownerDetails) updateData.ownerDetails = parseIfString(updateData.ownerDetails);
-    if (updateData.legalDetails) updateData.legalDetails = parseIfString(updateData.legalDetails);
-    if (updateData.viewingSchedule) updateData.viewingSchedule = parseIfString(updateData.viewingSchedule);
-    if (updateData.websiteAssignment) updateData.websiteAssignment = parseIfString(updateData.websiteAssignment);
-    if (updateData.floorPlan) updateData.floorPlan = parseIfString(updateData.floorPlan);
-
-    // Update property unit
+    // Update the property unit
     const updatedPropertyUnit = await PropertyUnit.findByIdAndUpdate(
       id,
       updateData,
       { new: true, runValidators: true }
-    ).populate('createdBy', 'name email phoneNumber');
+    )
+    .populate('createdBy', 'name email phoneNumber')
+    .populate('parentProperty', 'title');
 
     // If approval status changed to approved, log it
     if (updateData.approvalStatus === 'approved' && propertyUnit.approvalStatus !== 'approved') {
@@ -744,6 +892,13 @@ const updatePropertyUnit = async (req, res) => {
       });
     }
 
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Duplicate field value entered'
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: 'Error updating property unit',
@@ -752,7 +907,7 @@ const updatePropertyUnit = async (req, res) => {
   }
 };
 
-// Delete property unit
+// Delete property unit (Public)
 const deletePropertyUnit = async (req, res) => {
   try {
     const { id } = req.params;
@@ -822,86 +977,11 @@ const deletePropertyUnit = async (req, res) => {
     });
   }
 };
-const getPropertyUnitById = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Validate ID format
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid property unit ID format"
-      });
-    }
-
-    console.log("Searching for property unit with ID:", id); // Debug log
-
-    // Find property unit - remove approvalStatus filter temporarily for debugging
-    const propertyUnit = await PropertyUnit.findOne({
-      _id: id
-      // Remove filters temporarily:
-      // approvalStatus: "approved",
-      // availability: "available"
-    })
-      .populate("parentProperty", "name title images")
-      .populate("createdBy", "name email phoneNumber avatar")
-      .lean();
-
-    console.log("Found property unit:", propertyUnit ? "Yes" : "No"); // Debug log
-
-    if (!propertyUnit) {
-      return res.status(404).json({
-        success: false,
-        message: "Property unit not found"
-      });
-    }
-
-    // Increment view count asynchronously
-    PropertyUnit.findByIdAndUpdate(id, { 
-      $inc: { viewCount: 1 } 
-    }).exec();
-
-    // REMOVED: All price per sqft calculations
-
-    // Format response - simplified
-    const response = {
-      success: true,
-      data: {
-        ...propertyUnit,
-        // Add virtual fields
-        fullAddress: propertyUnit.unitNumber 
-          ? `${propertyUnit.unitNumber}, ${propertyUnit.address || ''}, ${propertyUnit.city || ''}`.replace(/\s*,\s*,/g, ',').replace(/,\s*$/, '')
-          : `${propertyUnit.address || ''}, ${propertyUnit.city || ''}`.replace(/\s*,\s*,/g, ',').replace(/,\s*$/, '')
-      }
-    };
-
-    console.log("Sending response for:", response.data.title); // Debug log
-    res.status(200).json(response);
-    
-  } catch (error) {
-    console.error("Get property unit by ID error:", error);
-    console.error("Error stack:", error.stack);
-    
-    // Handle specific errors
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid property unit ID"
-      });
-    }
-    
-    res.status(500).json({
-      success: false,
-      message: "Error fetching property unit",
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
-  }
-};
 
 module.exports = {
   createPropertyUnit,
   getPropertyUnits,
-getPropertyUnitById,
+  getPropertyUnitById,
   updatePropertyUnit,
   deletePropertyUnit
 };

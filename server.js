@@ -4,8 +4,8 @@ const dotenv = require("dotenv");
 const cors = require("cors");
 const propertyRoutes = require("./routes/propertyRoutes");
 const agentRoutes = require("./routes/agentroute");
-const Property = require("./models/property");
 const propertyUnitRoutes = require('./routes/propertyUnitRoutes');
+const adminPropertyUnitRoutes = require('./routes/adminPropertyUnitRoutes'); // Correct import
 dotenv.config();
 
 const app = express();
@@ -45,7 +45,9 @@ app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/admin/agent', require('./routes/agentroute'));
 app.use('/api/clicks', require('./routes/clicks'));
 app.use("/api/agents", agentRoutes);
-app.use('/api/property-units', propertyUnitRoutes);
+app.use('/api/property-units', propertyUnitRoutes); // Regular property unit routes
+app.use('/api/admin/property-units', adminPropertyUnitRoutes); // Admin property unit routes
+
 // ✅ Health check route
 app.get('/api/health', (req, res) => {
   res.json({ 
@@ -63,17 +65,23 @@ app.get('/api/test', (req, res) => {
   });
 });
 
-// MongoDB connection - Use the same variable name
+// MongoDB connection
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
 .then(() => {
   console.log("✅ MongoDB connected");
-  // Run the update script after connection
-  // updateExistingProperties();
 })
 .catch((err) => console.error("❌ MongoDB connection error:", err));
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🌐 Allowed origins: ${allowedOrigins.join(', ')}`);
+});
+
+
 
 // Function to update existing properties
 // async function updateExistingProperties() {
@@ -136,12 +144,3 @@ mongoose.connect(process.env.MONGO_URI, {
 //     // Don't exit process, just log error
 //   }
 // }
-
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🌐 Allowed origins: ${allowedOrigins.join(', ')}`);
-});
-
-
-

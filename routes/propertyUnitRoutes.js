@@ -27,4 +27,6 @@ router.put("/:id", upload.array("images", 10), updatePropertyUnit);
 router.delete("/:id", deletePropertyUnit);
 
 
+
+
 module.exports = router;
