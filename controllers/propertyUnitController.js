@@ -976,12 +976,181 @@ const deletePropertyUnit = async (req, res) => {
       error: error.message
     });
   }
+
+
+// Add to your exports
+
 };
 
+  // In your backend controller (add these functions)
+const bulkUpdateDisplayOrders = async (req, res) => {
+  try {
+    const { displayOrders } = req.body;
+    
+    if (!Array.isArray(displayOrders) || displayOrders.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Display orders array is required'
+      });
+    }
+
+    const updates = displayOrders.map(order => ({
+      updateOne: {
+        filter: { _id: order.id },
+        update: { $set: { displayOrder: order.displayOrder } }
+      }
+    }));
+
+    const result = await PropertyUnit.bulkWrite(updates);
+
+    res.status(200).json({
+      success: true,
+      message: `Display orders updated for ${result.modifiedCount} properties`,
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    console.error('Bulk update display orders error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating display orders',
+      error: error.message
+    });
+  }
+};
+
+const bulkUpdatePropertyUnits = async (req, res) => {
+  try {
+    const { ids, ...updateData } = req.body;
+    
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Property IDs array is required'
+      });
+    }
+
+    // Filter out admin-only fields for non-admin users
+    const isAdmin = req.user && (req.user.userType === 'admin' || req.user.userType === 'superadmin');
+    if (!isAdmin) {
+      const adminFields = ['approvalStatus', 'isFeatured', 'isVerified', 'rejectionReason'];
+      adminFields.forEach(field => delete updateData[field]);
+    }
+
+    // If admin is rejecting, require rejection reason
+    if (isAdmin && updateData.approvalStatus === 'rejected' && !updateData.rejectionReason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rejection reason is required when rejecting properties'
+      });
+    }
+
+    const updates = ids.map(id => ({
+      updateOne: {
+        filter: { _id: id },
+        update: { $set: updateData }
+      }
+    }));
+
+    const result = await PropertyUnit.bulkWrite(updates);
+
+    res.status(200).json({
+      success: true,
+      message: `Updated ${result.modifiedCount} properties`,
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    console.error('Bulk update error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating properties',
+      error: error.message
+    });
+  }
+};
+
+const bulkDeletePropertyUnits = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Property IDs array is required'
+      });
+    }
+
+    // Check permissions for each property
+    const isAdmin = req.user && (req.user.userType === 'admin' || req.user.userType === 'superadmin');
+    
+    if (!isAdmin) {
+      // For non-admin users, check if they own all properties
+      const properties = await PropertyUnit.find({ _id: { $in: ids } });
+      const notOwned = properties.filter(p => !p.createdBy.equals(req.user._id));
+      
+      if (notOwned.length > 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'Not authorized to delete some properties'
+        });
+      }
+    }
+
+    // Get properties to delete images from Cloudinary
+    const properties = await PropertyUnit.find({ _id: { $in: ids } });
+    
+    // Delete images from Cloudinary
+    for (const property of properties) {
+      if (property.images && property.images.length > 0) {
+        for (const image of property.images) {
+          if (image.public_id) {
+            try {
+              await cloudinary.uploader.destroy(image.public_id);
+            } catch (cloudinaryError) {
+              console.error('Error deleting image from Cloudinary:', cloudinaryError);
+            }
+          }
+        }
+      }
+      
+      // Delete floor plan images
+      if (property.floorPlan && property.floorPlan.public_id) {
+        try {
+          await cloudinary.uploader.destroy(property.floorPlan.public_id);
+        } catch (error) {
+          console.error('Error deleting floor plan from Cloudinary:', error);
+        }
+      }
+    }
+
+    // Delete from database
+    const result = await PropertyUnit.deleteMany({ _id: { $in: ids } });
+
+    // Remove from users' postedProperties
+    await User.updateMany(
+      {},
+      { $pull: { postedProperties: { property: { $in: ids } } } }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `Deleted ${result.deletedCount} properties`,
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    console.error('Bulk delete error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting properties',
+      error: error.message
+    });
+  }
+};
 module.exports = {
   createPropertyUnit,
   getPropertyUnits,
   getPropertyUnitById,
   updatePropertyUnit,
-  deletePropertyUnit
+  deletePropertyUnit,  bulkUpdateDisplayOrders,
+  bulkUpdatePropertyUnits,
+  bulkDeletePropertyUnits
 };

@@ -5,7 +5,10 @@ const {
   getPropertyUnits,
   getPropertyUnitById,
   updatePropertyUnit,
-  deletePropertyUnit
+  deletePropertyUnit,
+  bulkUpdateDisplayOrders,
+  bulkUpdatePropertyUnits,
+  bulkDeletePropertyUnits
 } = require("../controllers/propertyUnitController");
 const { protect, authorize } = require("../middleware/authMiddleware");
 const upload = require("../middlewares/multer");
@@ -26,7 +29,10 @@ router.put("/:id", upload.array("images", 10), updatePropertyUnit);
 // Delete property unit
 router.delete("/:id", deletePropertyUnit);
 
-
+router.put('/bulk/display-orders',  bulkUpdateDisplayOrders);
+router.put('/bulk/update',  bulkUpdatePropertyUnits);
+router.delete('/bulk/delete',  bulkDeletePropertyUnits);
+router.put('/bulk/approval-status',  bulkUpdatePropertyUnits); 
 
 
 module.exports = router;
