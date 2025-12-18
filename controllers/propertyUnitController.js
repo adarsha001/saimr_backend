@@ -351,10 +351,10 @@ const getPropertyUnits = async (req, res) => {
       availability,
       isFeatured,
       isVerified,
-      sortBy = 'createdAt',
-      sortOrder = 'desc',
-      page = 10,
-      limit = 200,
+      sortBy = 'displayOrder', // DEFAULT: displayOrder
+      sortOrder = 'asc', // DEFAULT: asc
+      page = 1,
+      limit = 12,
       search: searchQuery,
       approvalStatus,
       createdBy
@@ -455,7 +455,7 @@ const getPropertyUnits = async (req, res) => {
 
     // Calculate pagination
     const pageNum = Math.max(1, parseInt(page) || 1);
-    const limitNum = Math.min(Math.max(1, parseInt(limit) || 10), 100);
+    const limitNum = Math.min(Math.max(1, parseInt(limit) || 12), 200);
     const skip = (pageNum - 1) * limitNum;
 
     // Build sort object
@@ -472,15 +472,23 @@ const getPropertyUnits = async (req, res) => {
       'isVerified': 'isVerified',
       'availability': 'availability',
       'bedrooms': 'specifications.bedrooms',
-      'carpetArea': 'specifications.carpetArea'
+      'carpetArea': 'specifications.carpetArea',
+      'displayOrder': 'displayOrder' // ADDED
     };
 
-    const sortField = allowedSortFields[sortBy] || 'createdAt';
+    const sortField = allowedSortFields[sortBy] || 'displayOrder';
     const sortDirection = sortOrder === 'asc' ? 1 : -1;
     
     sort[sortField] = sortDirection;
     
-    if (sortField !== 'isFeatured') {
+    // Enhanced sorting for displayOrder
+    if (sortField === 'displayOrder') {
+      // When sorting by displayOrder, also sort by featured and verified
+      sort.isFeatured = -1;
+      sort.isVerified = -1;
+      sort.approvalStatus = 1; // Approved first
+    } else if (sortField !== 'isFeatured') {
+      // For other sorts, still prioritize featured properties
       sort.isFeatured = -1;
     }
 
@@ -525,15 +533,15 @@ const getPropertyUnits = async (req, res) => {
           bathrooms,
           furnishing,
           possessionStatus,
-          listingType
+          listingType,
+          sortBy,
+          sortOrder
         }
       }
     });
 
   } catch (error) {
     console.error('Get property units error:', error);
-    console.error('Error stack:', error.stack);
-    
     res.status(500).json({
       success: false,
       message: 'Error fetching property units',

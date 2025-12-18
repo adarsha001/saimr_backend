@@ -1,49 +1,29 @@
 const express = require("express");
 const router = express.Router();
-const {
-  getAllPropertyUnits,
-  getPropertyUnitByIdAdmin,
-  createPropertyUnitAdmin,
-  updatePropertyUnitAdmin,
-  deletePropertyUnitAdmin,
-  updateApprovalStatus,
-  toggleFeatured,
-  toggleVerified,
-  getPropertyUnitStats,
-  bulkUpdatePropertyUnits,
-  bulkDeletePropertyUnits,updateDisplayOrders,updateSingleDisplayOrder
-} = require("../controllers/adminPropertyUnitController");
+
+// ✅ Correct import (make sure this matches your controller file)
+const adminPropertyUnitController = require("../controllers/adminPropertyUnitController");
 
 const { protect, authorize } = require("../middleware/authMiddleware");
-const upload = require("../middlewares/multer");
+const upload = require("../middlewares/multer"); // Make sure path is correct
 
 // Apply protection and authorization middleware
 router.use(protect);
-router.use(authorize("admin"));
+router.use(authorize("admin", "superadmin")); // Allow both admin and superadmin
 
 // Admin routes
-router.get("/", getAllPropertyUnits);
-router.get("/stats", getPropertyUnitStats);
-router.get("/:id", getPropertyUnitByIdAdmin);
-router.post("/", upload.array("images", 10), createPropertyUnitAdmin);
-router.put("/:id", upload.array("images", 10), updatePropertyUnitAdmin);
-router.delete("/:id", deletePropertyUnitAdmin);
-router.put("/:id/approval", updateApprovalStatus);
-router.put("/:id/toggle-featured", toggleFeatured);
-router.put("/:id/toggle-verified", toggleVerified);
-router.put("/bulk/update", bulkUpdatePropertyUnits);
-router.delete("/bulk/delete", bulkDeletePropertyUnits);
-router.put(
-  '/display-orders/update',
-
-updateDisplayOrders
-);
-
-// Update single display order
-router.put(
-  '/:id/display-order',
-
- updateSingleDisplayOrder
-);
+router.get("/", adminPropertyUnitController.getAllPropertyUnits);
+router.get("/stats", adminPropertyUnitController.getPropertyUnitStats);
+router.get("/:id", adminPropertyUnitController.getPropertyUnitByIdAdmin);
+router.post("/", upload.array("images", 10), adminPropertyUnitController.createPropertyUnitAdmin);
+router.put("/:id", upload.array("images", 10), adminPropertyUnitController.updatePropertyUnitAdmin);
+router.delete("/:id", adminPropertyUnitController.deletePropertyUnitAdmin);
+router.put("/:id/approval", adminPropertyUnitController.updateApprovalStatus);
+router.put("/:id/toggle-featured", adminPropertyUnitController.toggleFeatured);
+router.put("/:id/toggle-verified", adminPropertyUnitController.toggleVerified);
+router.put("/bulk/update", adminPropertyUnitController.bulkUpdatePropertyUnits);
+router.delete("/bulk/delete", adminPropertyUnitController.bulkDeletePropertyUnits);
+router.put("/display-orders/update", adminPropertyUnitController.updateDisplayOrders);
+router.put("/:id/display-order", adminPropertyUnitController.updateSingleDisplayOrder);
 
 module.exports = router;
