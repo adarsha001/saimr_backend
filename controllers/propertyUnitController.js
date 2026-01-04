@@ -545,13 +545,35 @@ const getPropertyUnits = async (req, res) => {
 
 const getFeaturedPropertyUnits = async (req, res) => {
   try {
+    // Get query parameters with defaults
+    const {
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+      limit = 50
+    } = req.query;
+
+    // Build sort object
+    let sort = {};
+    if (sortBy === 'displayOrder') {
+      sort.displayOrder = 1;
+      sort.createdAt = sortOrder === 'asc' ? 1 : -1;
+    } else {
+      sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+      // Add secondary sort by displayOrder
+      sort.displayOrder = 1;
+    }
+
+    // Convert limit to number
+    const limitNum = Math.min(Math.max(1, parseInt(limit) || 50), 100);
+
     // Get only featured, approved, and available properties
     const propertyUnits = await PropertyUnit.find({
       isFeatured: true,
       approvalStatus: "approved",
       availability: "available"
     })
-    .sort({ displayOrder: 1, createdAt: -1 })
+    .sort(sort)
+    .limit(limitNum)
     .populate("createdBy", "name email phoneNumber avatar")
     .populate("parentProperty", "name title images")
     .lean();
@@ -566,7 +588,8 @@ const getFeaturedPropertyUnits = async (req, res) => {
     console.error("Get featured property units error:", error);
     res.status(500).json({
       success: false,
-      message: "Error fetching featured property units"
+      message: "Error fetching featured property units",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
