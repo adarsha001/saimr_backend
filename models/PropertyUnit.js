@@ -135,7 +135,7 @@ const propertyUnitSchema = new mongoose.Schema(
           // Luxury
           "Smart Home Automation",
           "Central AC",
-          "Jacuzzi",
+          "bore water",
           "Walk-in Closet",
           "Study Room",
           "Pooja Room",
@@ -147,7 +147,7 @@ const propertyUnitSchema = new mongoose.Schema(
           "Terrace",
           "Balcony",
           "Swimming Pool",
-          "Jacuzzi",
+          "bore water",
           
           // Safety & Security
           "Video Door Phone",
