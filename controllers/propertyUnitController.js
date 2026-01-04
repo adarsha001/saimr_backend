@@ -542,6 +542,36 @@ const getPropertyUnits = async (req, res) => {
   }
 };
 
+
+const getFeaturedPropertyUnits = async (req, res) => {
+  try {
+    // Get only featured, approved, and available properties
+    const propertyUnits = await PropertyUnit.find({
+      isFeatured: true,
+      approvalStatus: "approved",
+      availability: "available"
+    })
+    .sort({ displayOrder: 1, createdAt: -1 })
+    .populate("createdBy", "name email phoneNumber avatar")
+    .populate("parentProperty", "name title images")
+    .lean();
+
+    res.status(200).json({
+      success: true,
+      count: propertyUnits.length,
+      data: propertyUnits
+    });
+
+  } catch (error) {
+    console.error("Get featured property units error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching featured property units"
+    });
+  }
+};
+
+
 // Get property unit by ID (Public)
 const getPropertyUnitById = async (req, res) => {
   try {
@@ -988,7 +1018,6 @@ module.exports = {
   getPropertyUnits,
   getPropertyUnitById,
   updatePropertyUnit,
-  deletePropertyUnit,  bulkUpdateDisplayOrders,
-  bulkUpdatePropertyUnits,
-  bulkDeletePropertyUnits
+  deletePropertyUnit,  
+getFeaturedPropertyUnits
 };
