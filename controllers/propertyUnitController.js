@@ -351,10 +351,10 @@ const getPropertyUnits = async (req, res) => {
       availability,
       isFeatured,
       isVerified,
-      sortBy = 'createdAt',
-      sortOrder = 'desc',
-      page = 10,
-      limit = 200,
+      sortBy = 'displayOrder', // Changed default to displayOrder
+      sortOrder = 'asc', // Changed default to asc for displayOrder
+      page = 1,
+      limit = 12,
       search: searchQuery,
       approvalStatus,
       createdBy
@@ -455,13 +455,14 @@ const getPropertyUnits = async (req, res) => {
 
     // Calculate pagination
     const pageNum = Math.max(1, parseInt(page) || 1);
-    const limitNum = Math.min(Math.max(1, parseInt(limit) || 10), 100);
+    const limitNum = Math.min(Math.max(1, parseInt(limit) || 12), 100);
     const skip = (pageNum - 1) * limitNum;
 
     // Build sort object
     let sort = {};
     
     const allowedSortFields = {
+      'displayOrder': 'displayOrder', // Added this
       'createdAt': 'createdAt',
       'updatedAt': 'updatedAt',
       'title': 'title',
@@ -475,11 +476,22 @@ const getPropertyUnits = async (req, res) => {
       'carpetArea': 'specifications.carpetArea'
     };
 
-    const sortField = allowedSortFields[sortBy] || 'createdAt';
+    const sortField = allowedSortFields[sortBy] || 'displayOrder'; // Changed default to displayOrder
     const sortDirection = sortOrder === 'asc' ? 1 : -1;
     
-    sort[sortField] = sortDirection;
+    // If sorting by displayOrder, always put null values at the end
+    if (sortField === 'displayOrder') {
+      sort = { 
+        [sortField]: sortDirection,
+        'createdAt': -1 // Secondary sort for items without displayOrder
+      };
+    } else {
+      sort[sortField] = sortDirection;
+      // Add displayOrder as secondary sort for other fields
+      sort.displayOrder = -1;
+    }
     
+    // If not sorting by isFeatured, add it as a sort criteria
     if (sortField !== 'isFeatured') {
       sort.isFeatured = -1;
     }
@@ -507,6 +519,12 @@ const getPropertyUnits = async (req, res) => {
     const availableBedrooms = await PropertyUnit.distinct('specifications.bedrooms', filter)
       .then(beds => beds.filter(b => b != null).sort((a, b) => a - b));
 
+    // Also get other filter options
+    const availableFurnishingTypes = await PropertyUnit.distinct('specifications.furnishing', filter);
+    const availablePossessionStatuses = await PropertyUnit.distinct('specifications.possessionStatus', filter);
+    const availableKitchenTypes = await PropertyUnit.distinct('specifications.kitchenType', filter);
+    const availableListingTypes = await PropertyUnit.distinct('listingType', filter);
+
     res.status(200).json({
       success: true,
       count: propertyUnits.length,
@@ -518,6 +536,10 @@ const getPropertyUnits = async (req, res) => {
         availableCities,
         availablePropertyTypes,
         availableBedrooms,
+        availableFurnishingTypes,
+        availablePossessionStatuses,
+        availableKitchenTypes,
+        availableListingTypes,
         appliedFilters: {
           city,
           propertyType,
@@ -525,6 +547,7 @@ const getPropertyUnits = async (req, res) => {
           bathrooms,
           furnishing,
           possessionStatus,
+          kitchenType,
           listingType
         }
       }
