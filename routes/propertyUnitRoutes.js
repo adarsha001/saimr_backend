@@ -6,17 +6,16 @@ const {
   getPropertyUnitById,
   updatePropertyUnit,
   deletePropertyUnit,
-  bulkUpdateDisplayOrders,
-  bulkUpdatePropertyUnits,
-  bulkDeletePropertyUnits,getFeaturedPropertyUnits
+getFeaturedPropertyUnits
 } = require("../controllers/propertyUnitController");
 const { protect, authorize } = require("../middleware/authMiddleware");
 const upload = require("../middlewares/multer");
 
 // Public routes
+router.get('/featured', getFeaturedPropertyUnits);
 router.get("/", getPropertyUnits);
 router.get("/:id", getPropertyUnitById);
-router.get('/featured', getFeaturedPropertyUnits);
+
 // Protected routes
 router.use(protect);
 
