@@ -68,7 +68,7 @@ const createPropertyUnit = async (req, res) => {
       "Studio",
       "Penthouse",
       "Duplex",
-      "Row House",
+      "Pg house",
       "Plot",
       "Commercial Space"
     ];

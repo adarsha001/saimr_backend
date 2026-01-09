@@ -51,7 +51,7 @@ const propertyUnitSchema = new mongoose.Schema(
         "Studio",
         "Penthouse",
         "Duplex",
-        "Row House",
+        "Pg house",
         "Plot", // For smaller plots
         "Commercial Space"
       ],
