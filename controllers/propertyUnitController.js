@@ -335,18 +335,17 @@ const createPropertyUnit = async (req, res) => {
 };
 
 
-
 const createPropertyUnitN8n = async (req, res) => {
   try {
     console.log('=== N8N PROPERTY UNIT CREATION ===');
     console.log('Request Body:', JSON.stringify(req.body, null, 2));
 
     // === SECURITY: Validate request source ===
-    const apiKey = req.headers['x-api-key'] || req.headers['authorization'];
-    if (!apiKey) {
+    const authHeader = req.headers['authorization'];
+    if (!authHeader) {
       return res.status(401).json({
         success: false,
-        message: "API key or authorization token required"
+        message: "Authorization token required"
       });
     }
 
@@ -356,7 +355,6 @@ const createPropertyUnitN8n = async (req, res) => {
       'city', 
       'address',
       'propertyType',
-      'specifications',
       'price',
       'createdBy'  // User ID from n8n
     ];
@@ -394,47 +392,55 @@ const createPropertyUnitN8n = async (req, res) => {
     }
 
     // === VALIDATE SPECIFICATIONS ===
-    let specifications;
-    try {
-      specifications = typeof req.body.specifications === 'string' 
-        ? JSON.parse(req.body.specifications)
-        : req.body.specifications;
-    } catch (error) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid specifications format. Must be valid JSON object",
-        error: error.message
-      });
+    let specifications = {};
+    if (req.body.specifications) {
+      try {
+        specifications = typeof req.body.specifications === 'string' 
+          ? JSON.parse(req.body.specifications)
+          : req.body.specifications;
+      } catch (error) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid specifications format. Must be valid JSON object",
+          error: error.message
+        });
+      }
     }
 
-    const requiredSpecs = ['bedrooms', 'bathrooms', 'carpetArea', 'builtUpArea'];
-    const missingSpecs = requiredSpecs.filter(spec => 
-      specifications[spec] === undefined || specifications[spec] === null
-    );
+    // Set default specifications if not provided
+    const defaultSpecs = {
+      bedrooms: 0,
+      bathrooms: 0,
+      balconies: 0,
+      floors: 1,
+      carpetArea: 0,
+      builtUpArea: 0,
+      furnishing: "unfurnished",
+      possessionStatus: "ready-to-move",
+      parking: { covered: 0, open: 0 },
+      kitchenType: "regular"
+    };
 
-    if (missingSpecs.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Missing required specifications: ${missingSpecs.join(', ')}`,
-        required: requiredSpecs
-      });
-    }
+    // Merge provided specs with defaults
+    specifications = { ...defaultSpecs, ...specifications };
 
     // === VALIDATE PRICE ===
-    let price;
-    try {
-      price = typeof req.body.price === 'string' 
-        ? JSON.parse(req.body.price)
-        : req.body.price;
-    } catch (error) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid price format. Must be valid JSON object with amount field",
-        error: error.message
-      });
+    let price = {};
+    if (req.body.price) {
+      try {
+        price = typeof req.body.price === 'string' 
+          ? JSON.parse(req.body.price)
+          : req.body.price;
+      } catch (error) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid price format. Must be valid JSON object",
+          error: error.message
+        });
+      }
     }
 
-    if (!price || !price.amount || isNaN(Number(price.amount))) {
+    if (!price.amount || isNaN(Number(price.amount))) {
       return res.status(400).json({
         success: false,
         message: "Price must have a valid 'amount' field",
@@ -462,17 +468,20 @@ const createPropertyUnitN8n = async (req, res) => {
     const ownerDetails = parseField('ownerDetails', {});
     const legalDetails = parseField('legalDetails', {});
     const floorPlan = parseField('floorPlan', {});
+    const viewingSchedule = parseField('viewingSchedule', []);
 
     // === PROCESS IMAGES ===
     let images = [];
     if (req.body.images && Array.isArray(req.body.images)) {
-      // Expecting pre-uploaded Cloudinary URLs from n8n
       images = req.body.images.map(img => ({
         url: img.url || '',
         public_id: img.public_id || '',
         caption: img.caption || ''
-      })).filter(img => img.url); // Only keep images with URLs
+      })).filter(img => img.url && img.url.trim() !== '');
     }
+
+    // IMPORTANT: Allow empty images array for n8n
+    // Images can be added later or might come from another source
 
     // === DETERMINE LISTING TYPE ===
     let listingType = "sale";
@@ -501,7 +510,7 @@ const createPropertyUnitN8n = async (req, res) => {
       title: req.body.title.trim(),
       description: req.body.description || '',
       unitNumber: req.body.unitNumber || '',
-      images: images,
+      images: images, // Can be empty array
       city: req.body.city.trim(),
       address: req.body.address.trim(),
       coordinates: coordinates,
@@ -515,13 +524,13 @@ const createPropertyUnitN8n = async (req, res) => {
       securityDeposit: Number(req.body.securityDeposit) || 0,
       propertyType: req.body.propertyType,
       specifications: {
-        bedrooms: Number(specifications.bedrooms),
-        bathrooms: Number(specifications.bathrooms),
+        bedrooms: Number(specifications.bedrooms) || 0,
+        bathrooms: Number(specifications.bathrooms) || 0,
         balconies: Number(specifications.balconies) || 0,
         floors: Number(specifications.floors) || 1,
         floorNumber: specifications.floorNumber ? Number(specifications.floorNumber) : null,
-        carpetArea: Number(specifications.carpetArea),
-        builtUpArea: Number(specifications.builtUpArea),
+        carpetArea: Number(specifications.carpetArea) || 0,
+        builtUpArea: Number(specifications.builtUpArea) || 0,
         superBuiltUpArea: specifications.superBuiltUpArea ? Number(specifications.superBuiltUpArea) : null,
         plotArea: specifications.plotArea ? Number(specifications.plotArea) : null,
         furnishing: specifications.furnishing || "unfurnished",
@@ -542,7 +551,7 @@ const createPropertyUnitN8n = async (req, res) => {
       },
       unitFeatures: filteredUnitFeatures,
       rentalDetails: {
-        availableForRent: rentalDetails.availableForRent || (listingType === 'rent' || listingType === 'lease'),
+        availableForRent: rentalDetails.availableForRent || false,
         leaseDuration: {
           value: rentalDetails.leaseDuration?.value || 11,
           unit: rentalDetails.leaseDuration?.unit || "months"
@@ -552,8 +561,8 @@ const createPropertyUnitN8n = async (req, res) => {
         includedInRent: rentalDetails.includedInRent || []
       },
       availability: req.body.availability || "available",
-      isFeatured: req.body.isFeatured || false,
-      isVerified: req.body.isVerified || false,
+      isFeatured: req.body.isFeatured === true || req.body.isFeatured === 'true',
+      isVerified: req.body.isVerified === true || req.body.isVerified === 'true',
       approvalStatus: req.body.approvalStatus || "pending",
       listingType: listingType,
       websiteAssignment: req.body.websiteAssignment && Array.isArray(req.body.websiteAssignment)
@@ -561,7 +570,11 @@ const createPropertyUnitN8n = async (req, res) => {
         : ["cleartitle"],
       rejectionReason: req.body.rejectionReason || '',
       virtualTour: req.body.virtualTour || '',
-      floorPlan: floorPlan,
+      floorPlan: {
+        image: floorPlan.image || '',
+        public_id: floorPlan.public_id || '',
+        description: floorPlan.description || ''
+      },
       ownerDetails: {
         name: ownerDetails.name || '',
         phoneNumber: ownerDetails.phoneNumber || '',
@@ -576,7 +589,7 @@ const createPropertyUnitN8n = async (req, res) => {
         encumbranceCertificate: legalDetails.encumbranceCertificate || false,
         occupancyCertificate: legalDetails.occupancyCertificate || false
       },
-      viewingSchedule: req.body.viewingSchedule || [],
+      viewingSchedule: viewingSchedule,
       contactPreference: req.body.contactPreference && Array.isArray(req.body.contactPreference)
         ? req.body.contactPreference
         : ["call", "whatsapp"],
@@ -585,7 +598,7 @@ const createPropertyUnitN8n = async (req, res) => {
       favoriteCount: 0,
       metaTitle: req.body.metaTitle || '',
       metaDescription: req.body.metaDescription || '',
-      slug: req.body.slug || '',
+      slug: req.body.slug || '', // Will be auto-generated if empty
       displayOrder: Number(req.body.displayOrder) || 0,
       createdBy: req.body.createdBy,
       parentProperty: req.body.parentProperty || null
@@ -625,7 +638,7 @@ const createPropertyUnitN8n = async (req, res) => {
       success: true,
       message: "Property unit created successfully via n8n",
       data: newPropertyUnit,
-      n8nId: req.body.n8nId || req.body.externalId || null // For n8n workflow tracking
+      n8nId: req.body.n8nId || req.body.externalId || null
     };
 
     console.log('=== N8N PROPERTY UNIT CREATION SUCCESS ===');
