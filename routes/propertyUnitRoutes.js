@@ -22,7 +22,7 @@ router.use(protect);
 
 // Create property unit - EXACTLY like your existing route
 router.post("/", upload.array("images", 10), createPropertyUnit);
-router.post("/", upload.array("images", 10), createPropertyUnitN8n);
+router.post("/n8n", upload.array("images", 10), createPropertyUnitN8n);
 
 
 // Update property unit
