@@ -334,6 +334,338 @@ const createPropertyUnit = async (req, res) => {
   }
 };
 
+
+
+const createPropertyUnitN8n = async (req, res) => {
+  try {
+    console.log('=== N8N PROPERTY UNIT CREATION ===');
+    console.log('Request Body:', JSON.stringify(req.body, null, 2));
+
+    // === SECURITY: Validate request source ===
+    const apiKey = req.headers['x-api-key'] || req.headers['authorization'];
+    if (!apiKey) {
+      return res.status(401).json({
+        success: false,
+        message: "API key or authorization token required"
+      });
+    }
+
+    // === VALIDATE REQUIRED FIELDS ===
+    const requiredFields = [
+      'title',
+      'city', 
+      'address',
+      'propertyType',
+      'specifications',
+      'price',
+      'createdBy'  // User ID from n8n
+    ];
+
+    const missingFields = requiredFields.filter(field => !req.body[field]);
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Missing required fields: ${missingFields.join(', ')}`,
+        required: requiredFields
+      });
+    }
+
+    // === VALIDATE PROPERTY TYPE ===
+    const validPropertyTypes = [
+      "Apartment", "Villa", "Independent House", "Studio", 
+      "Penthouse", "Duplex", "Pg house", "Plot", "Commercial Space"
+    ];
+
+    if (!validPropertyTypes.includes(req.body.propertyType)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid propertyType. Must be one of: ${validPropertyTypes.join(', ')}`,
+        received: req.body.propertyType
+      });
+    }
+
+    // === VALIDATE USER ===
+    const user = await User.findById(req.body.createdBy);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: `User with ID ${req.body.createdBy} not found`
+      });
+    }
+
+    // === VALIDATE SPECIFICATIONS ===
+    let specifications;
+    try {
+      specifications = typeof req.body.specifications === 'string' 
+        ? JSON.parse(req.body.specifications)
+        : req.body.specifications;
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid specifications format. Must be valid JSON object",
+        error: error.message
+      });
+    }
+
+    const requiredSpecs = ['bedrooms', 'bathrooms', 'carpetArea', 'builtUpArea'];
+    const missingSpecs = requiredSpecs.filter(spec => 
+      specifications[spec] === undefined || specifications[spec] === null
+    );
+
+    if (missingSpecs.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Missing required specifications: ${missingSpecs.join(', ')}`,
+        required: requiredSpecs
+      });
+    }
+
+    // === VALIDATE PRICE ===
+    let price;
+    try {
+      price = typeof req.body.price === 'string' 
+        ? JSON.parse(req.body.price)
+        : req.body.price;
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid price format. Must be valid JSON object with amount field",
+        error: error.message
+      });
+    }
+
+    if (!price || !price.amount || isNaN(Number(price.amount))) {
+      return res.status(400).json({
+        success: false,
+        message: "Price must have a valid 'amount' field",
+        received: price
+      });
+    }
+
+    // === PARSE OPTIONAL FIELDS ===
+    const parseField = (field, defaultValue) => {
+      if (!req.body[field]) return defaultValue;
+      try {
+        return typeof req.body[field] === 'string' 
+          ? JSON.parse(req.body[field])
+          : req.body[field];
+      } catch (error) {
+        console.warn(`Failed to parse ${field}, using default`);
+        return defaultValue;
+      }
+    };
+
+    const buildingDetails = parseField('buildingDetails', {});
+    const unitFeatures = parseField('unitFeatures', []);
+    const rentalDetails = parseField('rentalDetails', {});
+    const coordinates = parseField('coordinates', { latitude: null, longitude: null });
+    const ownerDetails = parseField('ownerDetails', {});
+    const legalDetails = parseField('legalDetails', {});
+    const floorPlan = parseField('floorPlan', {});
+
+    // === PROCESS IMAGES ===
+    let images = [];
+    if (req.body.images && Array.isArray(req.body.images)) {
+      // Expecting pre-uploaded Cloudinary URLs from n8n
+      images = req.body.images.map(img => ({
+        url: img.url || '',
+        public_id: img.public_id || '',
+        caption: img.caption || ''
+      })).filter(img => img.url); // Only keep images with URLs
+    }
+
+    // === DETERMINE LISTING TYPE ===
+    let listingType = "sale";
+    if (req.body.listingType && ["sale", "rent", "lease", "pg"].includes(req.body.listingType)) {
+      listingType = req.body.listingType;
+    } else if (rentalDetails.availableForRent) {
+      listingType = "rent";
+    }
+
+    // === VALIDATE UNIT FEATURES (ENUM) ===
+    const validUnitFeatures = [
+      "Air Conditioning", "Modular Kitchen", "Wardrobes", "Geyser", "Exhaust Fan", 
+      "Chimney", "Lighting", "Ceiling Fans", "Smart Home Automation", "Central AC", 
+      "bore water", "Walk-in Closet", "Study Room", "Pooja Room", "Utility Area", 
+      "Servant Room", "Private Garden", "Terrace", "Balcony", "Swimming Pool", 
+      "Video Door Phone", "Security Alarm", "Fire Safety", "CCTV", "Pet Friendly", 
+      "Wheelchair Access", "Natural Light", "View"
+    ];
+
+    const filteredUnitFeatures = unitFeatures.filter(feature => 
+      validUnitFeatures.includes(feature)
+    );
+
+    // === CREATE PROPERTY UNIT OBJECT ===
+    const propertyUnitData = {
+      title: req.body.title.trim(),
+      description: req.body.description || '',
+      unitNumber: req.body.unitNumber || '',
+      images: images,
+      city: req.body.city.trim(),
+      address: req.body.address.trim(),
+      coordinates: coordinates,
+      mapUrl: req.body.mapUrl || '',
+      price: {
+        amount: String(price.amount),
+        currency: price.currency || "INR",
+        perUnit: price.perUnit || "total"
+      },
+      maintenanceCharges: Number(req.body.maintenanceCharges) || 0,
+      securityDeposit: Number(req.body.securityDeposit) || 0,
+      propertyType: req.body.propertyType,
+      specifications: {
+        bedrooms: Number(specifications.bedrooms),
+        bathrooms: Number(specifications.bathrooms),
+        balconies: Number(specifications.balconies) || 0,
+        floors: Number(specifications.floors) || 1,
+        floorNumber: specifications.floorNumber ? Number(specifications.floorNumber) : null,
+        carpetArea: Number(specifications.carpetArea),
+        builtUpArea: Number(specifications.builtUpArea),
+        superBuiltUpArea: specifications.superBuiltUpArea ? Number(specifications.superBuiltUpArea) : null,
+        plotArea: specifications.plotArea ? Number(specifications.plotArea) : null,
+        furnishing: specifications.furnishing || "unfurnished",
+        possessionStatus: specifications.possessionStatus || "ready-to-move",
+        ageOfProperty: specifications.ageOfProperty ? Number(specifications.ageOfProperty) : null,
+        parking: {
+          covered: specifications.parking?.covered ? Number(specifications.parking.covered) : 0,
+          open: specifications.parking?.open ? Number(specifications.parking.open) : 0
+        },
+        kitchenType: specifications.kitchenType || "regular"
+      },
+      buildingDetails: {
+        name: buildingDetails.name || '',
+        totalFloors: buildingDetails.totalFloors ? Number(buildingDetails.totalFloors) : null,
+        totalUnits: buildingDetails.totalUnits ? Number(buildingDetails.totalUnits) : null,
+        yearBuilt: buildingDetails.yearBuilt ? Number(buildingDetails.yearBuilt) : null,
+        amenities: Array.isArray(buildingDetails.amenities) ? buildingDetails.amenities : []
+      },
+      unitFeatures: filteredUnitFeatures,
+      rentalDetails: {
+        availableForRent: rentalDetails.availableForRent || (listingType === 'rent' || listingType === 'lease'),
+        leaseDuration: {
+          value: rentalDetails.leaseDuration?.value || 11,
+          unit: rentalDetails.leaseDuration?.unit || "months"
+        },
+        rentNegotiable: rentalDetails.rentNegotiable !== undefined ? rentalDetails.rentNegotiable : true,
+        preferredTenants: rentalDetails.preferredTenants || [],
+        includedInRent: rentalDetails.includedInRent || []
+      },
+      availability: req.body.availability || "available",
+      isFeatured: req.body.isFeatured || false,
+      isVerified: req.body.isVerified || false,
+      approvalStatus: req.body.approvalStatus || "pending",
+      listingType: listingType,
+      websiteAssignment: req.body.websiteAssignment && Array.isArray(req.body.websiteAssignment)
+        ? [...new Set([...req.body.websiteAssignment, "cleartitle"])]
+        : ["cleartitle"],
+      rejectionReason: req.body.rejectionReason || '',
+      virtualTour: req.body.virtualTour || '',
+      floorPlan: floorPlan,
+      ownerDetails: {
+        name: ownerDetails.name || '',
+        phoneNumber: ownerDetails.phoneNumber || '',
+        email: ownerDetails.email || '',
+        reasonForSelling: ownerDetails.reasonForSelling || ''
+      },
+      legalDetails: {
+        ownershipType: legalDetails.ownershipType || null,
+        reraRegistered: legalDetails.reraRegistered || false,
+        reraNumber: legalDetails.reraNumber || '',
+        khataCertificate: legalDetails.khataCertificate || false,
+        encumbranceCertificate: legalDetails.encumbranceCertificate || false,
+        occupancyCertificate: legalDetails.occupancyCertificate || false
+      },
+      viewingSchedule: req.body.viewingSchedule || [],
+      contactPreference: req.body.contactPreference && Array.isArray(req.body.contactPreference)
+        ? req.body.contactPreference
+        : ["call", "whatsapp"],
+      viewCount: 0,
+      inquiryCount: 0,
+      favoriteCount: 0,
+      metaTitle: req.body.metaTitle || '',
+      metaDescription: req.body.metaDescription || '',
+      slug: req.body.slug || '',
+      displayOrder: Number(req.body.displayOrder) || 0,
+      createdBy: req.body.createdBy,
+      parentProperty: req.body.parentProperty || null
+    };
+
+    console.log('Creating Property Unit with data:', JSON.stringify(propertyUnitData, null, 2));
+
+    // === CREATE PROPERTY UNIT IN DATABASE ===
+    const newPropertyUnit = await PropertyUnit.create(propertyUnitData);
+
+    // === UPDATE USER'S POSTED PROPERTIES ===
+    try {
+      const foundUser = await User.findById(req.body.createdBy);
+      if (foundUser) {
+        const alreadyExists = foundUser.postedProperties.some(
+          item => item.property && item.property.toString() === newPropertyUnit._id.toString()
+        );
+        
+        if (!alreadyExists) {
+          foundUser.postedProperties.push({
+            property: newPropertyUnit._id,
+            postedAt: newPropertyUnit.createdAt,
+            status: 'active',
+            propertyType: 'unit'
+          });
+          await foundUser.save();
+          console.log(`✓ Property Unit ${newPropertyUnit._id} added to user ${foundUser._id}'s postedProperties`);
+        }
+      }
+    } catch (userUpdateError) {
+      console.error('Error updating user postedProperties:', userUpdateError);
+      // Continue even if user update fails
+    }
+
+    // === SUCCESS RESPONSE ===
+    const response = {
+      success: true,
+      message: "Property unit created successfully via n8n",
+      data: newPropertyUnit,
+      n8nId: req.body.n8nId || req.body.externalId || null // For n8n workflow tracking
+    };
+
+    console.log('=== N8N PROPERTY UNIT CREATION SUCCESS ===');
+    res.status(201).json(response);
+
+  } catch (error) {
+    console.error('=== N8N PROPERTY UNIT CREATION ERROR ===');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
+
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: errors,
+        validationError: true
+      });
+    }
+
+    // Handle duplicate key errors
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "Duplicate property unit detected",
+        duplicateError: true
+      });
+    }
+
+    // Generic error response
+    res.status(500).json({
+      success: false,
+      message: "Server error while creating property unit via n8n",
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
 // Get all property units (Public)
 const getPropertyUnits = async (req, res) => {
   try {
@@ -1065,5 +1397,6 @@ module.exports = {
   getPropertyUnitById,
   updatePropertyUnit,
   deletePropertyUnit,  
-getFeaturedPropertyUnits
+getFeaturedPropertyUnits,
+createPropertyUnitN8n
 };

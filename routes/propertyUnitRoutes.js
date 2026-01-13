@@ -6,7 +6,8 @@ const {
   getPropertyUnitById,
   updatePropertyUnit,
   deletePropertyUnit,
-getFeaturedPropertyUnits
+getFeaturedPropertyUnits,
+createPropertyUnitN8n
 } = require("../controllers/propertyUnitController");
 const { protect, authorize } = require("../middleware/authMiddleware");
 const upload = require("../middlewares/multer");
@@ -21,6 +22,7 @@ router.use(protect);
 
 // Create property unit - EXACTLY like your existing route
 router.post("/", upload.array("images", 10), createPropertyUnit);
+router.post("/", upload.array("images", 10), createPropertyUnitN8n);
 
 
 // Update property unit
