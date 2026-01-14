@@ -3,25 +3,44 @@ const Like = require("../models/Like");
 const PropertyUnit = require("../models/PropertyUnit");
 const mongoose = require("mongoose");
 
+// Helper function to validate MongoDB ObjectId
+const isValidObjectId = (id) => {
+  if (!id) return false;
+  return mongoose.Types.ObjectId.isValid(id) && /^[0-9a-fA-F]{24}$/.test(id.toString());
+};
+
 // @desc    Like a property unit
-// @route   POST /api/likes/:propertyId
+// @route   POST /api/property-units/likes/:propertyId
 // @access  Private
 exports.likePropertyUnit = async (req, res) => {
   try {
     const { propertyId } = req.params;
     const userId = req.user.id;
 
+    console.log('Like request for property:', propertyId, 'by user:', userId);
+
     // Validate propertyId
-    if (!mongoose.Types.ObjectId.isValid(propertyId)) {
+    if (!isValidObjectId(propertyId)) {
+      console.error('Invalid property ID:', propertyId);
       return res.status(400).json({
         success: false,
-        message: "Invalid property ID"
+        message: "Invalid property ID format"
+      });
+    }
+
+    // Validate userId
+    if (!isValidObjectId(userId)) {
+      console.error('Invalid user ID:', userId);
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID"
       });
     }
 
     // Check if property exists
     const property = await PropertyUnit.findById(propertyId);
     if (!property) {
+      console.error('Property not found:', propertyId);
       return res.status(404).json({
         success: false,
         message: "Property not found"
@@ -35,6 +54,7 @@ exports.likePropertyUnit = async (req, res) => {
     });
 
     if (alreadyLiked) {
+      console.log('Property already liked by user');
       return res.status(400).json({
         success: false,
         message: "Property already liked"
@@ -47,15 +67,18 @@ exports.likePropertyUnit = async (req, res) => {
       propertyUnit: propertyId
     });
 
+    console.log('Like created successfully:', like._id);
+
+    // Update property like count
+    property.likes = (property.likes || 0) + 1;
+    await property.save();
+    console.log('Property like count updated:', property.likes);
+
     // Populate property details
     await like.populate({
       path: 'propertyUnit',
       select: 'title city price images propertyType listingType isVerified isFeatured'
     });
-
-    // Update property like count
-    property.likes = (property.likes || 0) + 1;
-    await property.save();
 
     res.status(201).json({
       success: true,
@@ -64,6 +87,15 @@ exports.likePropertyUnit = async (req, res) => {
     });
   } catch (error) {
     console.error("Error liking property:", error);
+    
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already liked this property"
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -73,18 +105,30 @@ exports.likePropertyUnit = async (req, res) => {
 };
 
 // @desc    Unlike a property unit
-// @route   DELETE /api/likes/:propertyId
+// @route   DELETE /api/property-units/likes/:propertyId
 // @access  Private
 exports.unlikePropertyUnit = async (req, res) => {
   try {
     const { propertyId } = req.params;
     const userId = req.user.id;
 
+    console.log('Unlike request for property:', propertyId, 'by user:', userId);
+
     // Validate propertyId
-    if (!mongoose.Types.ObjectId.isValid(propertyId)) {
+    if (!isValidObjectId(propertyId)) {
+      console.error('Invalid property ID:', propertyId);
       return res.status(400).json({
         success: false,
-        message: "Invalid property ID"
+        message: "Invalid property ID format"
+      });
+    }
+
+    // Validate userId
+    if (!isValidObjectId(userId)) {
+      console.error('Invalid user ID:', userId);
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID"
       });
     }
 
@@ -95,17 +139,21 @@ exports.unlikePropertyUnit = async (req, res) => {
     });
 
     if (!like) {
+      console.log('Like not found for property:', propertyId, 'user:', userId);
       return res.status(404).json({
         success: false,
         message: "Like not found"
       });
     }
 
+    console.log('Like deleted successfully:', like._id);
+
     // Update property like count
     const property = await PropertyUnit.findById(propertyId);
     if (property) {
       property.likes = Math.max(0, (property.likes || 0) - 1);
       await property.save();
+      console.log('Property like count updated:', property.likes);
     }
 
     res.status(200).json({
@@ -124,30 +172,74 @@ exports.unlikePropertyUnit = async (req, res) => {
 };
 
 // @desc    Get user's liked properties
-// @route   GET /api/likes
+// @route   GET /api/property-units/likes
 // @access  Private
 exports.getLikedProperties = async (req, res) => {
   try {
     const userId = req.user.id;
+    console.log('Fetching liked properties for user:', userId);
 
-    const likes = await Like.find({ user: userId })
-      .populate({
-        path: 'propertyUnit',
-        select: 'title city price images propertyType listingType specifications buildingDetails isVerified isFeatured approvalStatus availability createdAt',
-        populate: {
-          path: 'createdBy',
-          select: 'name email phone'
+    // Validate userId
+    if (!isValidObjectId(userId)) {
+      console.error('Invalid user ID:', userId);
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format"
+      });
+    }
+
+    // First, find all likes for the user
+    const likes = await Like.find({ user: userId }).sort('-createdAt');
+    console.log('Found', likes.length, 'likes for user');
+
+    // Manually populate each property to handle invalid references
+    const likedProperties = [];
+    const invalidLikes = [];
+
+    for (const like of likes) {
+      try {
+        // Check if propertyUnit ID is valid
+        if (!isValidObjectId(like.propertyUnit)) {
+          console.warn('Invalid propertyUnit ID in like:', like._id, 'propertyUnit:', like.propertyUnit);
+          invalidLikes.push(like._id);
+          continue;
         }
-      })
-      .sort('-createdAt');
 
-    // Extract property units from likes
-    const likedProperties = likes.map(like => like.propertyUnit).filter(Boolean);
+        // Try to find the property
+        const property = await PropertyUnit.findById(like.propertyUnit)
+          .select('title city price images propertyType listingType specifications buildingDetails isVerified isFeatured approvalStatus availability createdAt')
+          .populate('createdBy', 'name email phone');
+
+        if (property) {
+          likedProperties.push(property);
+        } else {
+          console.warn('Property not found for like:', like._id, 'referenced property:', like.propertyUnit);
+          invalidLikes.push(like._id);
+        }
+      } catch (error) {
+        console.error('Error processing like:', like._id, error.message);
+        invalidLikes.push(like._id);
+      }
+    }
+
+    // Clean up invalid likes (optional)
+    if (invalidLikes.length > 0) {
+      console.log('Found', invalidLikes.length, 'invalid likes. Cleaning up...');
+      try {
+        await Like.deleteMany({ _id: { $in: invalidLikes } });
+        console.log('Cleaned up invalid likes');
+      } catch (cleanupError) {
+        console.error('Error cleaning up invalid likes:', cleanupError);
+      }
+    }
+
+    console.log('Returning', likedProperties.length, 'valid liked properties');
 
     res.status(200).json({
       success: true,
       count: likedProperties.length,
-      data: likedProperties
+      data: likedProperties,
+      cleanedCount: invalidLikes.length
     });
   } catch (error) {
     console.error("Error getting liked properties:", error);
@@ -160,18 +252,30 @@ exports.getLikedProperties = async (req, res) => {
 };
 
 // @desc    Check if a property is liked by user
-// @route   GET /api/likes/check/:propertyId
+// @route   GET /api/property-units/likes/check/:propertyId
 // @access  Private
 exports.checkIfLiked = async (req, res) => {
   try {
     const { propertyId } = req.params;
     const userId = req.user.id;
 
+    console.log('Check if liked - property:', propertyId, 'user:', userId);
+
     // Validate propertyId
-    if (!mongoose.Types.ObjectId.isValid(propertyId)) {
+    if (!isValidObjectId(propertyId)) {
+      console.error('Invalid property ID:', propertyId);
       return res.status(400).json({
         success: false,
-        message: "Invalid property ID"
+        message: "Invalid property ID format"
+      });
+    }
+
+    // Validate userId
+    if (!isValidObjectId(userId)) {
+      console.error('Invalid user ID:', userId);
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID"
       });
     }
 
@@ -179,6 +283,8 @@ exports.checkIfLiked = async (req, res) => {
       user: userId, 
       propertyUnit: propertyId 
     });
+
+    console.log('Is liked result:', !!isLiked);
 
     res.status(200).json({
       success: true,
@@ -195,21 +301,26 @@ exports.checkIfLiked = async (req, res) => {
 };
 
 // @desc    Get like count for a property
-// @route   GET /api/likes/count/:propertyId
+// @route   GET /api/property-units/likes/count/:propertyId
 // @access  Public
 exports.getLikeCount = async (req, res) => {
   try {
     const { propertyId } = req.params;
 
+    console.log('Get like count for property:', propertyId);
+
     // Validate propertyId
-    if (!mongoose.Types.ObjectId.isValid(propertyId)) {
+    if (!isValidObjectId(propertyId)) {
+      console.error('Invalid property ID:', propertyId);
       return res.status(400).json({
         success: false,
-        message: "Invalid property ID"
+        message: "Invalid property ID format"
       });
     }
 
     const count = await Like.countDocuments({ propertyUnit: propertyId });
+
+    console.log('Like count for property', propertyId, ':', count);
 
     res.status(200).json({
       success: true,
@@ -226,24 +337,37 @@ exports.getLikeCount = async (req, res) => {
 };
 
 // @desc    Toggle like/unlike (single endpoint for both)
-// @route   POST /api/likes/toggle/:propertyId
+// @route   POST /api/property-units/likes/toggle/:propertyId
 // @access  Private
 exports.toggleLike = async (req, res) => {
   try {
     const { propertyId } = req.params;
     const userId = req.user.id;
 
+    console.log('Toggle like request - property:', propertyId, 'user:', userId);
+
     // Validate propertyId
-    if (!mongoose.Types.ObjectId.isValid(propertyId)) {
+    if (!isValidObjectId(propertyId)) {
+      console.error('Invalid property ID:', propertyId);
       return res.status(400).json({
         success: false,
-        message: "Invalid property ID"
+        message: "Invalid property ID format"
+      });
+    }
+
+    // Validate userId
+    if (!isValidObjectId(userId)) {
+      console.error('Invalid user ID:', userId);
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID"
       });
     }
 
     // Check if property exists
     const property = await PropertyUnit.findById(propertyId);
     if (!property) {
+      console.error('Property not found:', propertyId);
       return res.status(404).json({
         success: false,
         message: "Property not found"
@@ -256,6 +380,8 @@ exports.toggleLike = async (req, res) => {
       propertyUnit: propertyId 
     });
 
+    console.log('Existing like found:', !!existingLike);
+
     let action;
     let like;
 
@@ -264,6 +390,7 @@ exports.toggleLike = async (req, res) => {
       await existingLike.deleteOne();
       property.likes = Math.max(0, (property.likes || 0) - 1);
       action = 'unliked';
+      console.log('Unlike successful');
     } else {
       // Like
       like = await Like.create({
@@ -272,9 +399,11 @@ exports.toggleLike = async (req, res) => {
       });
       property.likes = (property.likes || 0) + 1;
       action = 'liked';
+      console.log('Like successful, new like ID:', like._id);
     }
 
     await property.save();
+    console.log('Property like count updated to:', property.likes);
 
     res.status(200).json({
       success: true,
@@ -286,6 +415,85 @@ exports.toggleLike = async (req, res) => {
     });
   } catch (error) {
     console.error("Error toggling like:", error);
+    
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already liked this property"
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
+  }
+};
+
+// @desc    Clean up invalid likes (admin/debug endpoint)
+// @route   DELETE /api/property-units/likes/cleanup
+// @access  Private/Admin
+exports.cleanupInvalidLikes = async (req, res) => {
+  try {
+    console.log('Starting cleanup of invalid likes...');
+    
+    // Find all likes
+    const allLikes = await Like.find({});
+    console.log('Total likes in database:', allLikes.length);
+    
+    const invalidLikes = [];
+    
+    // Check each like for validity
+    for (const like of allLikes) {
+      // Check if user ID is valid
+      if (!isValidObjectId(like.user)) {
+        console.warn('Invalid user ID in like:', like._id, 'user:', like.user);
+        invalidLikes.push(like._id);
+        continue;
+      }
+      
+      // Check if propertyUnit ID is valid
+      if (!isValidObjectId(like.propertyUnit)) {
+        console.warn('Invalid propertyUnit ID in like:', like._id, 'propertyUnit:', like.propertyUnit);
+        invalidLikes.push(like._id);
+        continue;
+      }
+      
+      // Check if property exists
+      const propertyExists = await PropertyUnit.exists({ _id: like.propertyUnit });
+      if (!propertyExists) {
+        console.warn('Property not found for like:', like._id, 'property:', like.propertyUnit);
+        invalidLikes.push(like._id);
+        continue;
+      }
+      
+      // Check if user exists (if you have User model)
+      // const userExists = await User.exists({ _id: like.user });
+      // if (!userExists) {
+      //   console.warn('User not found for like:', like._id, 'user:', like.user);
+      //   invalidLikes.push(like._id);
+      // }
+    }
+    
+    console.log('Found', invalidLikes.length, 'invalid likes');
+    
+    // Delete invalid likes
+    if (invalidLikes.length > 0) {
+      await Like.deleteMany({ _id: { $in: invalidLikes } });
+      console.log('Deleted', invalidLikes.length, 'invalid likes');
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: `Cleaned up ${invalidLikes.length} invalid likes`,
+      cleanedCount: invalidLikes.length,
+      remainingCount: allLikes.length - invalidLikes.length
+    });
+    
+  } catch (error) {
+    console.error("Error cleaning up likes:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
