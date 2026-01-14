@@ -203,7 +203,10 @@ const propertyUnitSchema = new mongoose.Schema(
       enum: ["sale", "rent", "lease", "pg"], // PG = Paying Guest
       default: "sale"
     },
-    
+      likes: {
+    type: Number,
+    default: 0
+  },
     // 🌐 WEBSITE ASSIGNMENT
     websiteAssignment: {
       type: [String],
