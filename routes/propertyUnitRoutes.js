@@ -9,14 +9,7 @@ const {
 getFeaturedPropertyUnits,
 createPropertyUnitN8n
 } = require("../controllers/propertyUnitController");
-const {
-  likePropertyUnit,
-  unlikePropertyUnit,
-  getLikedProperties,
-  checkIfLiked,
-  getLikeCount,
-  toggleLike
-} = require("../controllers/likeControllerunit");
+const likeController = require("../controllers/likeControllerunit")
 const { protect, authorize } = require("../middleware/authMiddleware");
 const upload = require("../middlewares/multer");
 
@@ -26,12 +19,13 @@ router.get("/", getPropertyUnits);
 router.get("/:id", getPropertyUnitById);
 
 
-router.get('/likes/count/:propertyId', getLikeCount);
-router.get('/likes/check/:propertyId', protect, checkIfLiked);
-router.get('/likes', protect, getLikedProperties);
-router.post('/likes/:propertyId', protect, likePropertyUnit);
-router.delete('/likes/:propertyId', protect, unlikePropertyUnit);
-router.post('/likes/toggle/:propertyId', protect, toggleLike);
+router.get('/likes', protect, likeController.getLikedProperties);
+router.get('/likes/check/:propertyId', protect, likeController.checkIfLiked);
+router.get('/likes/count/:propertyId', likeController.getLikeCount);
+router.post('/likes/toggle/:propertyId', protect, likeController.toggleLike);
+router.post('/likes/:propertyId', protect, likeController.likeProperty);
+router.delete('/likes/:propertyId', protect, likeController.unlikeProperty);
+
 // Protected routes
 router.use(protect);
 
