@@ -174,73 +174,47 @@ exports.unlikePropertyUnit = async (req, res) => {
 // @desc    Get user's liked properties
 // @route   GET /api/property-units/likes
 // @access  Private
+// @desc    Get user's liked properties
+// @route   GET /api/property-units/likes
+// @access  Private
 exports.getLikedProperties = async (req, res) => {
   try {
     const userId = req.user.id;
-    console.log('Fetching liked properties for user:', userId);
+    console.log(`Fetching liked properties for user: ${userId}`);
 
-    // Validate userId
+    // Validate user ID
     if (!isValidObjectId(userId)) {
-      console.error('Invalid user ID:', userId);
       return res.status(400).json({
         success: false,
         message: "Invalid user ID format"
       });
     }
 
-    // First, find all likes for the user
-    const likes = await Like.find({ user: userId }).sort('-createdAt');
-    console.log('Found', likes.length, 'likes for user');
+    // SIMPLE APPROACH: Get likes first, then populate separately
+    const likes = await Like.find({ user: userId })
+      .select('propertyUnit')
+      .sort('-createdAt');
 
-    // Manually populate each property to handle invalid references
-    const likedProperties = [];
-    const invalidLikes = [];
+    console.log(`Found ${likes.length} likes for user ${userId}`);
 
-    for (const like of likes) {
-      try {
-        // Check if propertyUnit ID is valid
-        if (!isValidObjectId(like.propertyUnit)) {
-          console.warn('Invalid propertyUnit ID in like:', like._id, 'propertyUnit:', like.propertyUnit);
-          invalidLikes.push(like._id);
-          continue;
-        }
+    // Extract property IDs from likes
+    const propertyIds = likes.map(like => like.propertyUnit);
 
-        // Try to find the property
-        const property = await PropertyUnit.findById(like.propertyUnit)
-          .select('title city price images propertyType listingType specifications buildingDetails isVerified isFeatured approvalStatus availability createdAt')
-          .populate('createdBy', 'name email phone');
+    // Get properties using the IDs
+    const properties = await PropertyUnit.find({
+      _id: { $in: propertyIds }
+    })
+    .select('title city price images propertyType listingType isVerified isFeatured')
+    .lean();
 
-        if (property) {
-          likedProperties.push(property);
-        } else {
-          console.warn('Property not found for like:', like._id, 'referenced property:', like.propertyUnit);
-          invalidLikes.push(like._id);
-        }
-      } catch (error) {
-        console.error('Error processing like:', like._id, error.message);
-        invalidLikes.push(like._id);
-      }
-    }
-
-    // Clean up invalid likes (optional)
-    if (invalidLikes.length > 0) {
-      console.log('Found', invalidLikes.length, 'invalid likes. Cleaning up...');
-      try {
-        await Like.deleteMany({ _id: { $in: invalidLikes } });
-        console.log('Cleaned up invalid likes');
-      } catch (cleanupError) {
-        console.error('Error cleaning up invalid likes:', cleanupError);
-      }
-    }
-
-    console.log('Returning', likedProperties.length, 'valid liked properties');
+    console.log(`Found ${properties.length} properties for user ${userId}`);
 
     res.status(200).json({
       success: true,
-      count: likedProperties.length,
-      data: likedProperties,
-      cleanedCount: invalidLikes.length
+      count: properties.length,
+      data: properties
     });
+
   } catch (error) {
     console.error("Error getting liked properties:", error);
     res.status(500).json({
