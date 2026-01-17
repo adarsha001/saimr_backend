@@ -22,7 +22,7 @@ router.get("/:id", getPropertyUnitById);
 router.get('/likes', protect, likeController.getLikedProperties);
 
 // Check if a property is liked by current user
-router.get('/likes/check/:propertyId', protect, likeController.checkIfLiked);
+router.get('/likes/check/:propertyId', protect, likeController.checkIfLiked); 
 
 // Get like count for a property
 router.get('/likes/count/:propertyId', likeController.getLikeCount);

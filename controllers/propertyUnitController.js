@@ -1051,7 +1051,7 @@ const updatePropertyUnit = async (req, res) => {
     const isOwner = req.user._id.equals(propertyUnit.createdBy);
     const isAdmin = req.user.userType === 'admin' || req.user.userType === 'superadmin';
     
-    if (!isOwner && !isAdmin) {
+    if (!isOwner || !isAdmin) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this property unit'
