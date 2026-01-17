@@ -81,7 +81,7 @@ const createPropertyUnit = async (req, res) => {
     }
 
     // SECURITY: Determine sensitive fields based on user role
-    const isAdminUser = req.user.isAdmin || req.user.userType === 'superadmin' || req.user.userType === 'admin';
+    const isAdminUser = req.user.isAdmin === true; // Fixed: Check boolean isAdmin field
     
     let finalApprovalStatus = "pending";
     let finalIsFeatured = false;
@@ -112,71 +112,103 @@ const createPropertyUnit = async (req, res) => {
       }
     }
 
-    // Upload images to Cloudinary with watermark
+    // Upload images to Cloudinary with watermark - FIXED VERSION
     const uploadedImages = [];
     if (req.files && req.files.length > 0) {
       for (let file of req.files) {
         try {
-          // Upload original image to Cloudinary
-          const result = await cloudinary.uploader.upload(file.path, {
-            folder: "property-units",
+          // Check if file has valid data
+          if (!file || (!file.path && !file.buffer)) {
+            console.error('Invalid file:', file);
+            continue;
+          }
+          
+          // Upload to Cloudinary WITHOUT complex transformations first
+          let uploadResult;
+          
+          if (file.buffer) {
+            // For memory storage
+            uploadResult = await cloudinary.uploader.upload(
+              `data:${file.mimetype};base64,${file.buffer.toString('base64')}`,
+              {
+                folder: "property-units",
+                transformation: [
+                  { width: 1200, height: 800, crop: "limit" },
+                  { quality: "auto:good" }
+                ]
+              }
+            );
+          } else {
+            // For disk storage
+            uploadResult = await cloudinary.uploader.upload(file.path, {
+              folder: "property-units",
+              transformation: [
+                { width: 1200, height: 800, crop: "limit" },
+                { quality: "auto:good" }
+              ]
+            });
+          }
+          
+          // Apply watermark as a separate transformation
+          const watermarkedUrl = cloudinary.url(uploadResult.public_id, {
             transformation: [
-              // Apply watermark transformation
+              // Base image
+              { width: 1200, height: 800, crop: "limit" },
+              // Watermark overlay (simplified version)
               {
                 overlay: {
                   font_family: "Arial",
                   font_size: 40,
                   font_weight: "bold",
-                  text: "CLEARTITLE1",
-                  text_align: "center"
+                  text: encodeURIComponent("CLEARTITLE1")
                 },
                 color: "#FFFFFF",
-                background: "rgba(0, 0, 0, 0.4)",
-                opacity: 80,
-                width: "auto",
-                crop: "fit",
+                opacity: 60,
+                background: "rgba(0,0,0,0.5)",
                 gravity: "south",
-                y: 20
-              },
-              // Optional: Add another watermark at top right
-              {
-                overlay: {
-                  font_family: "Arial",
-                  font_size: 30,
-                  font_weight: "bold",
-                  text: "CLEARTITLE",
-                  text_align: "right"
-                },
-                color: "#FFFFFF",
-                background: "rgba(0, 0, 0, 0.3)",
-                opacity: 70,
-                width: "auto",
-                crop: "fit",
-                gravity: "north_east",
-                x: 20,
                 y: 20
               }
             ]
           });
           
           uploadedImages.push({
-            url: result.secure_url,
-            public_id: result.public_id,
+            url: watermarkedUrl,
+            public_id: uploadResult.public_id,
             caption: "",
-            // Store both original and watermarked URLs if needed
-            originalUrl: result.secure_url,
-            watermarkedUrl: result.secure_url, // Same URL since transformation is applied
+            originalUrl: uploadResult.secure_url,
+            watermarkedUrl: watermarkedUrl,
             watermarked: true
           });
           
-          console.log(`Image uploaded with watermark: ${result.secure_url}`);
+          console.log(`Image uploaded successfully: ${uploadResult.secure_url}`);
           
         } catch (uploadError) {
           console.error('Cloudinary upload error:', uploadError);
-          return res.status(500).json({
-            success: false,
-            message: 'Error uploading images to Cloudinary'
-          });
+          
+          // Try without any transformations
+          try {
+            const simpleResult = await cloudinary.uploader.upload(
+              file.path || file.buffer,
+              { folder: "property-units" }
+            );
+            
+            uploadedImages.push({
+              url: simpleResult.secure_url,
+              public_id: simpleResult.public_id,
+              caption: "",
+              originalUrl: simpleResult.secure_url,
+              watermarkedUrl: simpleResult.secure_url,
+              watermarked: false
+            });
+            
+            console.log(`Image uploaded without transformations: ${simpleResult.secure_url}`);
+          } catch (simpleError) {
+            console.error('Even simple upload failed:', simpleError);
+            return res.status(500).json({
+              success: false,
+              message: 'Error uploading images to Cloudinary'
+            });
+          }
         }
       }
     } else {
@@ -308,7 +340,7 @@ const createPropertyUnit = async (req, res) => {
       metaDescription,
       displayOrder: displayOrder || 0,
       parentProperty,
-      rejectionReason: isAdminUser ? rejectionReason : "",
+      rejectionReason: isAdminUser && finalApprovalStatus === 'rejected' ? rejectionReason : "",
       createdBy: req.user._id,
     });
 
@@ -340,6 +372,7 @@ const createPropertyUnit = async (req, res) => {
       }
     } catch (userUpdateError) {
       console.error('Error updating user postedProperties:', userUpdateError);
+      // Don't fail the whole request if this fails
     }
     
     await newPropertyUnit.populate('createdBy', 'name username email phoneNumber');
@@ -365,10 +398,10 @@ const createPropertyUnit = async (req, res) => {
       });
     }
 
-    if (error.code === 11000 && error.keyPattern && error.keyPattern.slug) {
+    if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: 'A property with similar title already exists'
+        message: 'Duplicate field value entered'
       });
     }
 
@@ -379,7 +412,6 @@ const createPropertyUnit = async (req, res) => {
     });
   }
 };
-
 
 const createPropertyUnitN8n = async (req, res) => {
   try {
