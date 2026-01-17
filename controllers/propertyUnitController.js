@@ -1047,11 +1047,12 @@ const updatePropertyUnit = async (req, res) => {
       });
     }
 
-    // Check permissions
+    // Check permissions - Updated to match your User model
     const isOwner = req.user._id.equals(propertyUnit.createdBy);
-    const isAdmin = req.user.userType === 'admin' || req.user.userType === 'superadmin';
+    const isAdmin = req.user.isAdmin === true; // Changed from checking userType to isAdmin boolean
     
-    if (!isOwner || !isAdmin) {
+    // Allow if user is either owner OR admin
+    if (!isOwner && !isAdmin) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this property unit'
@@ -1202,7 +1203,7 @@ const updatePropertyUnit = async (req, res) => {
       }
     }
 
-    // Admin-only fields
+    // Admin-only fields - only restrict if user is NOT admin
     const adminFields = ['approvalStatus', 'isFeatured', 'isVerified', 'rejectionReason'];
     if (!isAdmin) {
       for (const field of adminFields) {
@@ -1327,7 +1328,6 @@ const updatePropertyUnit = async (req, res) => {
     });
   }
 };
-
 // Delete property unit (Public)
 const deletePropertyUnit = async (req, res) => {
   try {
