@@ -225,7 +225,7 @@ exports.approveAgent = async (req, res) => {
       { new: true, upsert: true }
     );
     
-    agentData.agentId = `cleartitle${counter.seq}`;
+    agentData.agentId = `cleartitle1s2500${counter.seq}`;
     
     // Create agent profile
     const agent = await Agent.create(agentData);
