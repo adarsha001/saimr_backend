@@ -45,6 +45,7 @@ app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/admin/agent', require('./routes/agentroute'));
 app.use('/api/clicks', require('./routes/clicks'));
 app.use("/api/agents", agentRoutes);
+app.use("/api/admin/agents", require('./routes/adminAgentroute'));
 app.use('/api/property-units', propertyUnitRoutes); // Regular property unit routes
 app.use('/api/admin/property-units', adminPropertyUnitRoutes); // Admin property unit routes
 

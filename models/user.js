@@ -27,7 +27,8 @@ const userSchema = new mongoose.Schema({
   userType: {
     type: String,
     required: [true, 'User type is required'],
-    enum: ['buyer', 'seller', 'builder', 'developer', 'agent', 'investor', 'other']
+    enum: ['buyer', 'seller', 'builder', 'developer', 'investor', 'other', 'agent'],
+    default: 'buyer'
   },
   isAdmin: {
     type: Boolean,
@@ -38,7 +39,6 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Phone number is required'],
     validate: {
       validator: function(v) {
-        // Allow dummy numbers for Google sign-in users
         if (this.isGoogleAuth && v === '1234567890') {
           return true;
         }
@@ -47,12 +47,11 @@ const userSchema = new mongoose.Schema({
       message: 'Please provide a valid phone number'
     }
   },
-  // Additional phone number for agents
   alternativePhoneNumber: {
     type: String,
     validate: {
       validator: function(v) {
-        if (!v) return true; // Optional field
+        if (!v) return true;
         return /^\+?[\d\s\-\(\)]{10,}$/.test(v);
       },
       message: 'Please provide a valid phone number'
@@ -71,7 +70,6 @@ const userSchema = new mongoose.Schema({
     select: false,
     validate: {
       validator: function(v) {
-        // Password is not required for Google auth users
         if (this.isGoogleAuth) return true;
         return v && v.length >= 6;
       },
@@ -121,17 +119,14 @@ const userSchema = new mongoose.Schema({
   dateOfBirth: {
     type: Date
   },
-
   occupation: {
     type: String,
     trim: true
   },
-
   preferredLocation: {
     type: String,
     trim: true
   },
-
   
   // Contact Preferences
   contactPreferences: {
@@ -141,8 +136,6 @@ const userSchema = new mongoose.Schema({
     sms: { type: Boolean, default: false }
   },
   
-
-
   specialization: [{
     type: String,
     trim: true
@@ -236,18 +229,78 @@ const userSchema = new mongoose.Schema({
   interests: [{
     type: String,
     trim: true
-  }]
+  }],
+  
+  // ========== AGENT APPROVAL SYSTEM ==========
+  // Agent approval status (only for users with userType 'agent')
+  agentApproval: {
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected', 'suspended'],
+      default: 'pending'
+    },
+    appliedAt: {
+      type: Date,
+      default: null
+    },
+    reviewedAt: {
+      type: Date,
+      default: null
+    },
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    rejectionReason: {
+      type: String,
+      trim: true,
+      maxlength: [500, 'Rejection reason cannot exceed 500 characters']
+    },
+    notes: {
+      type: String,
+      trim: true,
+      maxlength: [1000, 'Notes cannot exceed 1000 characters']
+    }
+  },
+  
+  // Agent profile reference (only for approved agents)
+  agentProfile: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Agent',
+    default: null
+  },
+  // ===========================================
 }, {
   timestamps: true
 });
 
-// Hash password before saving (only if password exists)
+// Hash password before saving
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
   if (this.password) {
     this.password = await bcrypt.hash(this.password, 12);
   }
   next();
+});
+
+// Middleware to handle agent registration workflow
+userSchema.pre('save', async function(next) {
+  try {
+    // If userType is being set/changed to 'agent'
+    if (this.isModified('userType') && this.userType === 'agent') {
+      // Set agent approval status to pending if not already approved
+      if (!this.agentApproval || this.agentApproval.status !== 'approved') {
+        this.agentApproval = this.agentApproval || {};
+        this.agentApproval.status = 'pending';
+        this.agentApproval.appliedAt = new Date();
+      }
+    }
+    
+    next();
+  } catch (error) {
+    next(error);
+  }
 });
 
 // Compare password method
@@ -258,7 +311,7 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// In User model methods - Update if you want sourceWebsite in token
+// Get signed JWT token
 userSchema.methods.getSignedJwtToken = function() {
   return jwt.sign(
     { 
@@ -267,12 +320,55 @@ userSchema.methods.getSignedJwtToken = function() {
       userType: this.userType,
       isAdmin: this.isAdmin,
       isGoogleAuth: this.isGoogleAuth,
-      sourceWebsite: this.sourceWebsite // Optional: Add to token
+      sourceWebsite: this.sourceWebsite,
+      agentProfile: this.agentProfile,
+      agentApprovalStatus: this.userType === 'agent' ? this.agentApproval.status : null
     },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRE }
   );
 };
+
+// ========== AGENT APPROVAL METHODS ==========
+
+// Method to check if user is an approved agent
+userSchema.methods.isApprovedAgent = function() {
+  return this.userType === 'agent' && 
+         this.agentApproval.status === 'approved' && 
+         this.agentProfile !== null;
+};
+
+// Method to check if user is a pending agent
+userSchema.methods.isPendingAgent = function() {
+  return this.userType === 'agent' && this.agentApproval.status === 'pending';
+};
+
+// Method to check if user is a rejected agent
+userSchema.methods.isRejectedAgent = function() {
+  return this.userType === 'agent' && this.agentApproval.status === 'rejected';
+};
+
+// Method to check if user is a suspended agent
+userSchema.methods.isSuspendedAgent = function() {
+  return this.userType === 'agent' && this.agentApproval.status === 'suspended';
+};
+
+// Method to apply for agent (called when user registers as agent)
+userSchema.methods.applyForAgent = async function() {
+  if (this.userType !== 'agent') {
+    throw new Error('User must have userType "agent" to apply');
+  }
+  
+  this.agentApproval = {
+    status: 'pending',
+    appliedAt: new Date()
+  };
+  
+  await this.save();
+  return this;
+};
+
+// ===========================================
 
 // Method to add liked property
 userSchema.methods.addLikedProperty = async function(propertyId) {
