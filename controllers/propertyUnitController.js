@@ -1049,7 +1049,7 @@ const updatePropertyUnit = async (req, res) => {
 
     // Check permissions - Updated to match your User model
     const isOwner = req.user._id.equals(propertyUnit.createdBy);
-    const isAdmin = req.user.isAdmin === true; // Changed from checking userType to isAdmin boolean
+    const isAdmin = req.user.isAdmin === true;
     
     // Allow if user is either owner OR admin
     if (!isOwner && !isAdmin) {
@@ -1221,12 +1221,12 @@ const updatePropertyUnit = async (req, res) => {
       });
     }
 
-    // Handle image uploads
-    if (req.files && req.files.length > 0) {
+    // Handle image uploads and deletions
+    if (req.files && req.files.length > 0 || req.body.existingImages !== undefined) {
       const newImages = [];
       
-      // Separate regular images from floor plan
-      for (let file of req.files) {
+      // Upload new images
+      for (let file of req.files || []) {
         try {
           const result = await cloudinary.uploader.upload(file.path, {
             folder: "property-units",
@@ -1234,6 +1234,15 @@ const updatePropertyUnit = async (req, res) => {
           
           // Check if this is a floor plan
           if (file.fieldname === 'floorPlanImage') {
+            // Delete old floor plan from Cloudinary if exists
+            if (propertyUnit.floorPlan?.public_id) {
+              try {
+                await cloudinary.uploader.destroy(propertyUnit.floorPlan.public_id);
+              } catch (cloudinaryError) {
+                console.error('Error deleting old floor plan from Cloudinary:', cloudinaryError);
+              }
+            }
+            
             updateData.floorPlan = {
               image: result.secure_url,
               public_id: result.public_id,
@@ -1243,7 +1252,9 @@ const updatePropertyUnit = async (req, res) => {
             newImages.push({
               url: result.secure_url,
               public_id: result.public_id,
-              caption: ""
+              caption: req.body.imageCaptions ? 
+                (Array.isArray(req.body.imageCaptions) ? req.body.imageCaptions[newImages.length] : req.body.imageCaptions) 
+                : ""
             });
           }
         } catch (uploadError) {
@@ -1251,35 +1262,153 @@ const updatePropertyUnit = async (req, res) => {
         }
       }
       
-      // Handle existing images
+      // Handle existing images - FIXED LOGIC
       const existingImages = req.body.existingImages;
-      if (existingImages) {
+      
+      if (existingImages === '[]' || existingImages === '' || existingImages === 'none') {
+        // If existingImages is explicitly empty, remove all existing images
+        // First, delete from Cloudinary
+        for (const img of propertyUnit.images) {
+          if (img.public_id) {
+            try {
+              await cloudinary.uploader.destroy(img.public_id);
+            } catch (cloudinaryError) {
+              console.error('Error deleting image from Cloudinary:', cloudinaryError);
+            }
+          }
+        }
+        updateData.images = [...newImages];
+      } else if (existingImages) {
         let existingImagesArray;
         try {
           existingImagesArray = JSON.parse(existingImages);
         } catch (e) {
-          existingImagesArray = existingImages.split(',');
+          // If not JSON, try comma-separated
+          existingImagesArray = typeof existingImages === 'string' 
+            ? existingImages.split(',').filter(img => img.trim() !== '')
+            : existingImages;
         }
         
-        // Filter out deleted images
+        // Filter out deleted images - only keep ones in existingImagesArray
         const filteredImages = propertyUnit.images.filter(img => 
-          existingImagesArray.includes(img.url)
+          existingImagesArray.includes(img.url) || existingImagesArray.includes(img._id?.toString())
         );
+        
+        // Delete removed images from Cloudinary
+        const imagesToDelete = propertyUnit.images.filter(img => 
+          !existingImagesArray.includes(img.url) && !existingImagesArray.includes(img._id?.toString())
+        );
+        
+        for (const img of imagesToDelete) {
+          if (img.public_id) {
+            try {
+              await cloudinary.uploader.destroy(img.public_id);
+            } catch (cloudinaryError) {
+              console.error('Error deleting image from Cloudinary:', cloudinaryError);
+            }
+          }
+        }
         
         // Add new images
         updateData.images = [...filteredImages, ...newImages];
       } else {
-        // Keep all existing images and add new ones
+        // No existingImages in request - keep all existing images and add new ones
         updateData.images = [...propertyUnit.images, ...newImages];
+      }
+    } else if (req.body.existingImages !== undefined) {
+      // Case: No new files but existingImages was provided (for deletion only)
+      const existingImages = req.body.existingImages;
+      
+      if (existingImages === '[]' || existingImages === '' || existingImages === 'none') {
+        // Remove all images from Cloudinary
+        for (const img of propertyUnit.images) {
+          if (img.public_id) {
+            try {
+              await cloudinary.uploader.destroy(img.public_id);
+            } catch (cloudinaryError) {
+              console.error('Error deleting image from Cloudinary:', cloudinaryError);
+            }
+          }
+        }
+        updateData.images = [];
+      } else if (existingImages) {
+        let existingImagesArray;
+        try {
+          existingImagesArray = JSON.parse(existingImages);
+        } catch (e) {
+          existingImagesArray = typeof existingImages === 'string' 
+            ? existingImages.split(',').filter(img => img.trim() !== '')
+            : existingImages;
+        }
+        
+        // Filter to keep only specified images
+        const filteredImages = propertyUnit.images.filter(img => 
+          existingImagesArray.includes(img.url) || existingImagesArray.includes(img._id?.toString())
+        );
+        
+        // Delete removed images from Cloudinary
+        const imagesToDelete = propertyUnit.images.filter(img => 
+          !existingImagesArray.includes(img.url) && !existingImagesArray.includes(img._id?.toString())
+        );
+        
+        for (const img of imagesToDelete) {
+          if (img.public_id) {
+            try {
+              await cloudinary.uploader.destroy(img.public_id);
+            } catch (cloudinaryError) {
+              console.error('Error deleting image from Cloudinary:', cloudinaryError);
+            }
+          }
+        }
+        
+        updateData.images = filteredImages;
       }
     }
 
-    // Handle floor plan upload separately if no new floor plan image
-    if (req.body.floorPlanDescription && !updateData.floorPlan) {
+    // Handle floor plan removal
+    if (req.body.removeFloorPlan === 'true' || req.body.removeFloorPlan === true) {
+      // Delete old floor plan from Cloudinary if exists
+      if (propertyUnit.floorPlan?.public_id) {
+        try {
+          await cloudinary.uploader.destroy(propertyUnit.floorPlan.public_id);
+        } catch (cloudinaryError) {
+          console.error('Error deleting floor plan from Cloudinary:', cloudinaryError);
+        }
+      }
+      updateData.floorPlan = null;
+    } else if (req.body.floorPlanDescription && !updateData.floorPlan) {
+      // Update floor plan description only
       updateData.floorPlan = {
         ...propertyUnit.floorPlan,
         description: req.body.floorPlanDescription
       };
+    }
+
+    // Handle individual image deletion (if sent as separate field)
+    if (req.body.deletedImages) {
+      let deletedImagesArray;
+      try {
+        deletedImagesArray = JSON.parse(req.body.deletedImages);
+      } catch (e) {
+        deletedImagesArray = typeof req.body.deletedImages === 'string' 
+          ? req.body.deletedImages.split(',').filter(img => img.trim() !== '')
+          : req.body.deletedImages;
+      }
+      
+      // Filter out deleted images
+      const currentImages = updateData.images || propertyUnit.images;
+      updateData.images = currentImages.filter(img => 
+        !deletedImagesArray.includes(img.url) && !deletedImagesArray.includes(img.public_id)
+      );
+      
+      // Delete from Cloudinary
+      for (const imageId of deletedImagesArray) {
+        try {
+          await cloudinary.uploader.destroy(imageId);
+        } catch (cloudinaryError) {
+          console.error('Error deleting image from Cloudinary:', cloudinaryError);
+        }
+      }
     }
 
     // Update the property unit
