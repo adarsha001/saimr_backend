@@ -6,6 +6,7 @@ const propertyRoutes = require("./routes/propertyRoutes");
 const agentRoutes = require("./routes/agentroute");
 const propertyUnitRoutes = require('./routes/propertyUnitRoutes');
 const adminPropertyUnitRoutes = require('./routes/adminPropertyUnitRoutes'); // Correct import
+const propertyBatchRoutes = require('./routes/propertyBatchRoutes'); // Correct import
 dotenv.config();
 
 const app = express();
@@ -48,7 +49,7 @@ app.use("/api/agents", agentRoutes);
 app.use("/api/admin/agents", require('./routes/adminAgentroute'));
 app.use('/api/property-units', propertyUnitRoutes); // Regular property unit routes
 app.use('/api/admin/property-units', adminPropertyUnitRoutes); // Admin property unit routes
-
+app.use('/api/admin/batches',propertyBatchRoutes)
 // ✅ Health check route
 app.get('/api/health', (req, res) => {
   res.json({ 
