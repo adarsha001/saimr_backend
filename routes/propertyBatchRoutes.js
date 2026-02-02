@@ -3,6 +3,7 @@ const router = express.Router();
 const propertyBatchController = require('../controllers/propertyBatchController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 const upload = require('../middlewares/multer');
+const mongoose = require('mongoose'); // Added mongoose import
 
 // Create a specialized multer config for property batches
 const batchUpload = upload;
