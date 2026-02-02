@@ -2,72 +2,72 @@ const express = require('express');
 const router = express.Router();
 const propertyBatchController = require('../controllers/propertyBatchController');
 const { protect, authorize } = require('../middleware/authMiddleware');
-const upload = require('../middlewares/multer'); // Import your existing multer config
-const mongoose = require('mongoose');
+const upload = require('../middlewares/multer');
 
-// Create a specialized multer config for property batches with file size limit
-const batchUpload = upload; // Use your existing multer config
+// Create a specialized multer config for property batches
+const batchUpload = upload;
 
-// If you need to add specific file filter or limits, you can create a new instance:
-// const batchUpload = multer({
-//   storage: multer.diskStorage({
-//     filename: (req, file, cb) => {
-//       cb(null, Date.now() + path.extname(file.originalname));
-//     },
-//   }),
-//   fileFilter: (req, file, cb) => {
-//     // Accept images only
-//     if (file.mimetype.startsWith('image/')) {
-//       cb(null, true);
-//     } else {
-//       cb(new Error('Not an image! Please upload only images.'), false);
-//     }
-//   },
-//   limits: {
-//     fileSize: 5 * 1024 * 1024 // 5MB limit
-//   }
-// });
-
-// All routes require authentication
-router.use(protect);
-
-// ============ MAIN CRUD ROUTES ============
-router.route('/')
-  .post(
-    batchUpload.single('image'), // Single image upload
-    propertyBatchController.createBatch
-  )
-  .get(propertyBatchController.getAllBatches);
-
-router.route('/:id')
-  .get(propertyBatchController.getBatch)
-  .put(
-    batchUpload.single('image'), // Optional image update
-    propertyBatchController.updateBatch
-  )
-  .delete(propertyBatchController.deleteBatch);
-
-// ============ PROPERTY UNIT MANAGEMENT ROUTES ============
-router.route('/:id/add-unit')
-  .post(propertyBatchController.addPropertyUnit);
-
-router.route('/:id/remove-unit')
-  .post(propertyBatchController.removePropertyUnit);
-
-// ============ STATUS MANAGEMENT ROUTES ============
-router.route('/:id/toggle-active')
-  .patch(propertyBatchController.toggleActiveStatus);
-
-// ============ PUBLIC/SPECIAL ROUTES ============
-// Public route (no authentication required)
+// ============ PUBLIC ROUTES (No authentication required) ============
+// These routes are for users to view batches
 router.get('/location/:location', propertyBatchController.getBatchesByLocation);
 
+// ============ PROTECTED ROUTES (Authentication required) ============
+// Apply authentication middleware to all following routes
+router.use(protect);
+
+// ============ USER ROUTES (All authenticated users) ============
+// Users can only GET active batches
+router.get('/', propertyBatchController.getAllBatches); // Users see only active batches
+
 // ============ ADMIN ONLY ROUTES ============
-// Admin can get all batches including inactive ones
-router.get('/',
+// Only admin/superadmin can create, update, delete batches
+router.post('/',
+  authorize('admin', 'superadmin'), // Only admin can create
+  batchUpload.single('image'),
+  propertyBatchController.createBatch
+);
+
+// Get batch by ID (users can view, admin can view all)
+router.get('/:id', propertyBatchController.getBatch);
+
+// Update batch (admin only)
+router.put('/:id',
+  authorize('admin', 'superadmin'), // Only admin can update
+  batchUpload.single('image'),
+  propertyBatchController.updateBatch
+);
+
+// Delete batch (admin only)
+router.delete('/:id',
+  authorize('admin', 'superadmin'), // Only admin can delete
+  propertyBatchController.deleteBatch
+);
+
+// Add/remove property units (admin only)
+router.route('/:id/add-unit')
+  .post(
+    authorize('admin', 'superadmin'),
+    propertyBatchController.addPropertyUnit
+  );
+
+router.route('/:id/remove-unit')
+  .post(
+    authorize('admin', 'superadmin'),
+    propertyBatchController.removePropertyUnit
+  );
+
+// Toggle active status (admin only)
+router.route('/:id/toggle-active')
+  .patch(
+    authorize('admin', 'superadmin'),
+    propertyBatchController.toggleActiveStatus
+  );
+
+// Admin can get all batches including inactive ones (with special query param)
+router.get('/admin/all',
   authorize('admin', 'superadmin'),
   async (req, res, next) => {
-    req.query.isActive = 'false'; // Override to show all
+    req.query.showAll = true; // Flag to show all batches
     next();
   },
   propertyBatchController.getAllBatches
@@ -85,6 +85,7 @@ router.get('/admin/user/:userId',
       });
     }
     req.query.createdBy = userId;
+    req.query.showAll = true; // Show all batches for this user
     next();
   },
   propertyBatchController.getAllBatches
