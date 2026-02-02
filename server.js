@@ -41,6 +41,7 @@ app.use('/sitemap.xml', express.static('public/sitemap.xml'));
 
 // Routes
 app.use("/api/properties", propertyRoutes);
+app.use('/api/admin/batches',propertyBatchRoutes);
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
@@ -50,7 +51,6 @@ app.use("/api/agents", agentRoutes);
 app.use("/api/admin/agents", require('./routes/adminAgentroute'));
 app.use('/api/property-units', propertyUnitRoutes); // Regular property unit routes
 app.use('/api/admin/property-units', adminPropertyUnitRoutes); // Admin property unit routes
-app.use('/api/admin/batches',propertyBatchRoutes)
 // ✅ Health check route
 app.get('/api/health', (req, res) => {
   res.json({ 
