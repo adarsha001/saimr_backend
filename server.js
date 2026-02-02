@@ -29,8 +29,9 @@ app.use(cors({
       callback(new Error("Not allowed by CORS"));
     }
   },
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  credentials: true
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"], // Added PATCH and OPTIONS
+  credentials: true,
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"] // Optional but recommended
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -49,7 +50,7 @@ app.use("/api/agents", agentRoutes);
 app.use("/api/admin/agents", require('./routes/adminAgentroute'));
 app.use('/api/property-units', propertyUnitRoutes); // Regular property unit routes
 app.use('/api/admin/property-units', adminPropertyUnitRoutes); // Admin property unit routes
-app.use('/api/property-batches',propertyBatchRoutes)
+app.use('/api/admin/batches',propertyBatchRoutes)
 // ✅ Health check route
 app.get('/api/health', (req, res) => {
   res.json({ 

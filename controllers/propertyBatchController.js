@@ -3,14 +3,9 @@ const PropertyUnit = require('../models/PropertyUnit');
 const mongoose = require('mongoose');
 const cloudinary = require('cloudinary').v2;
 
-// Helper function to check if user is admin
-const isAdminUser = (user) => {
-  return user?.isAdmin || user?.userType === 'superadmin' || user?.userType === 'admin';
-};
-
-// @desc    Create a new property batch (Admin only)
+// @desc    Create a new property batch
 // @route   POST /api/property-batches
-// @access  Private/Admin
+// @access  Private
 exports.createBatch = async (req, res) => {
   try {
     console.log('User making request:', req.user); // Debug log
@@ -20,14 +15,6 @@ exports.createBatch = async (req, res) => {
       return res.status(401).json({
         success: false,
         message: 'User not authenticated. Please login to create batch'
-      });
-    }
-
-    // Check if user is admin
-    if (!isAdminUser(req.user)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Only administrators can create batches.'
       });
     }
 
@@ -115,9 +102,15 @@ exports.createBatch = async (req, res) => {
           parsedPropertyUnits = propertyUnits;
         }
         
-        // Validate property units exist (admin has access to all)
+        // Validate property units exist and user has access
         if (parsedPropertyUnits.length > 0) {
           const query = { _id: { $in: parsedPropertyUnits } };
+          
+          // If user is not admin, only allow their own property units
+          const isAdminUser = req.user.isAdmin || req.user.userType === 'superadmin' || req.user.userType === 'admin';
+          if (!isAdminUser) {
+            query.createdBy = req.user.id;
+          }
           
           const validUnits = await PropertyUnit.find(query).select('_id');
           const validUnitIds = validUnits.map(unit => unit._id.toString());
@@ -218,7 +211,7 @@ exports.createBatch = async (req, res) => {
 
 // @desc    Get all property batches
 // @route   GET /api/property-batches
-// @access  Private (users see active only, admin sees all with showAll flag)
+// @access  Private/Public (based on isActive)
 exports.getAllBatches = async (req, res) => {
   try {
     const { 
@@ -230,18 +223,14 @@ exports.getAllBatches = async (req, res) => {
       search,
       isActive = true,
       sortBy = 'createdAt',
-      sortOrder = 'desc',
-      showAll = false // Admin flag to show all batches
+      sortOrder = 'desc'
     } = req.query;
     
     const query = {};
     
-    // Check if user is admin
-    const adminUser = isAdminUser(req.user);
-    
-    // Regular users can only see active batches
-    // Admin can see all if showAll flag is true
-    if (!adminUser || !showAll) {
+    // Filter by active status (admin can see all)
+    const isAdminUser = req.user?.isAdmin || req.user?.userType === 'superadmin' || req.user?.userType === 'admin';
+    if (!isAdminUser) {
       query.isActive = isActive === 'true';
     }
     
@@ -271,8 +260,10 @@ exports.getAllBatches = async (req, res) => {
       ];
     }
     
-    // Regular users see all active batches (no user filter)
-    // Admin sees all batches
+    // Filter by user if not admin
+    if (!isAdminUser) {
+      query.createdBy = req.user._id;
+    }
     
     const pageInt = parseInt(page);
     const limitInt = parseInt(limit);
@@ -287,15 +278,8 @@ exports.getAllBatches = async (req, res) => {
       .populate('createdBy', 'name email username')
       .populate({
         path: 'propertyUnits',
-        select: 'title price images city specifications.bedrooms specifications.bathrooms availability isFeatured approvalStatus',
-        match: { 
-          // For regular users, only show approved and available properties
-          ...(!adminUser && { 
-            approvalStatus: 'approved',
-            availability: 'available'
-          })
-        },
-        options: { limit: 5 }
+        select: 'title price images city specifications.bedrooms specifications.bathrooms availability isFeatured',
+        options: { limit: 5 } // Limit populated units for performance
       })
       .sort(sort)
       .skip(skip)
@@ -311,11 +295,6 @@ exports.getAllBatches = async (req, res) => {
         limit: limitInt,
         total,
         pages: Math.ceil(total / limitInt)
-      },
-      // Add metadata about user type
-      meta: {
-        isAdmin: adminUser,
-        showAll: adminUser && showAll
       }
     });
   } catch (error) {
@@ -329,7 +308,7 @@ exports.getAllBatches = async (req, res) => {
 
 // @desc    Get single property batch
 // @route   GET /api/property-batches/:id
-// @access  Private (users see active only, admin sees all)
+// @access  Private
 exports.getBatch = async (req, res) => {
   try {
     const { id } = req.params;
@@ -345,7 +324,7 @@ exports.getBatch = async (req, res) => {
       .populate('createdBy', 'name email username')
       .populate({
         path: 'propertyUnits',
-        select: '-createdBy -__v',
+        select: '-createdBy -__v', // Exclude sensitive/unnecessary fields
         populate: {
           path: 'createdBy',
           select: 'name email phoneNumber'
@@ -359,30 +338,20 @@ exports.getBatch = async (req, res) => {
       });
     }
     
-    // Check if user is admin
-    const adminUser = isAdminUser(req.user);
+    // Check access permissions
+    const isAdminUser = req.user?.isAdmin || req.user?.userType === 'superadmin' || req.user?.userType === 'admin';
+    const isOwner = batch.createdBy._id.toString() === req.user._id.toString();
     
-    // Regular users can only see active batches
-    if (!adminUser && !batch.isActive) {
+    if (!isAdminUser && !isOwner && !batch.isActive) {
       return res.status(403).json({
         success: false,
         message: 'Access denied to inactive batch'
       });
     }
     
-    // Filter property units for regular users (only show approved/available)
-    if (!adminUser && batch.propertyUnits) {
-      batch.propertyUnits = batch.propertyUnits.filter(unit => 
-        unit.approvalStatus === 'approved' && unit.availability === 'available'
-      );
-    }
-    
     res.json({
       success: true,
-      data: batch,
-      meta: {
-        isAdmin: adminUser
-      }
+      data: batch
     });
   } catch (error) {
     console.error('Error fetching batch:', error);
@@ -393,22 +362,14 @@ exports.getBatch = async (req, res) => {
   }
 };
 
-// @desc    Update property batch (Admin only)
+// @desc    Update property batch
 // @route   PUT /api/property-batches/:id
-// @access  Private/Admin
+// @access  Private
 exports.updateBatch = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-    
-    // Check if user is admin
-    if (!isAdminUser(req.user)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Only administrators can update batches.'
-      });
-    }
-    
+    // console.log("hello")
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
@@ -422,6 +383,17 @@ exports.updateBatch = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Property batch not found'
+      });
+    }
+    
+    // Check permissions
+    const isAdminUser = req.user?.isAdmin || req.user?.userType === 'superadmin' || req.user?.userType === 'admin';
+    const isOwner = batch.createdBy.toString() === req.user._id.toString();
+    
+    if (!isAdminUser && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to update this batch'
       });
     }
     
@@ -467,9 +439,13 @@ exports.updateBatch = async (req, res) => {
           parsedUnits = JSON.parse(parsedUnits);
         }
         
-        // Validate new property units (admin has access to all)
+        // Validate new property units
         if (parsedUnits.length > 0) {
           const query = { _id: { $in: parsedUnits } };
+          
+          if (!isAdminUser) {
+            query.createdBy = req.user._id;
+          }
           
           const validUnits = await PropertyUnit.find(query).select('_id');
           const validUnitIds = validUnits.map(unit => unit._id.toString());
@@ -521,21 +497,13 @@ exports.updateBatch = async (req, res) => {
   }
 };
 
-// @desc    Delete property batch (Admin only)
+// @desc    Delete property batch
 // @route   DELETE /api/property-batches/:id
-// @access  Private/Admin
-exports.deleteBatch = async (req, res) => { 
+// @access  Private
+exports.deleteBatch = async (req, res) => {
   try {
     const { id } = req.params;
-    
-    // Check if user is admin
-    if (!isAdminUser(req.user)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Only administrators can delete batches.'
-      });
-    }
-    
+    // console.log("hello")
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
@@ -551,6 +519,19 @@ exports.deleteBatch = async (req, res) => {
       });
     }
     
+    // Check permissions
+    const isAdminUser = req.user?.isAdmin || 
+                       req.user?.userType === 'superadmin' || 
+                       req.user?.userType === 'admin';
+    const isOwner = batch.createdBy.toString() === req.user._id.toString();
+    
+    if (!isAdminUser && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to delete this batch'
+      });
+    }
+    
     // Delete image from Cloudinary if exists
     if (batch.image && batch.image.public_id) {
       try {
@@ -561,50 +542,30 @@ exports.deleteBatch = async (req, res) => {
       }
     }
     
-    // Optionally: Remove references to this batch from property units
-    if (batch.propertyUnits && batch.propertyUnits.length > 0) {
-      await PropertyUnit.updateMany(
-        { _id: { $in: batch.propertyUnits } },
-        { $pull: { batches: batch._id } }
-      );
-    }
-    
     // Delete the batch
     await PropertyBatch.findByIdAndDelete(id);
     
-    res.json({
+    res.status(200).json({
       success: true,
-      message: 'Property batch deleted successfully',
-      data: {
-        id: id,
-        batchName: batch.batchName,
-        locationName: batch.locationName
-      }
+      message: 'Property batch deleted successfully'
     });
   } catch (error) {
     console.error('Error deleting batch:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error while deleting batch'
+      message: 'Server error while deleting batch',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
-// @desc    Add property unit to batch (Admin only)
+// @desc    Add property unit to batch
 // @route   POST /api/property-batches/:id/add-unit
-// @access  Private/Admin
+// @access  Private
 exports.addPropertyUnit = async (req, res) => {
   try {
     const { id } = req.params;
     const { propertyUnitId } = req.body;
-    
-    // Check if user is admin
-    if (!isAdminUser(req.user)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Only administrators can modify batches.'
-      });
-    }
     
     if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(propertyUnitId)) {
       return res.status(400).json({
@@ -621,12 +582,28 @@ exports.addPropertyUnit = async (req, res) => {
       });
     }
     
-    // Check if property unit exists (admin has access to all)
-    const propertyUnit = await PropertyUnit.findById(propertyUnitId);
+    // Check permissions
+    const isAdminUser = req.user?.isAdmin || req.user?.userType === 'superadmin' || req.user?.userType === 'admin';
+    const isOwner = batch.createdBy.toString() === req.user._id.toString();
+    
+    if (!isAdminUser && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to modify this batch'
+      });
+    }
+    
+    // Check if property unit exists and user has access
+    const query = { _id: propertyUnitId };
+    if (!isAdminUser) {
+      query.createdBy = req.user._id;
+    }
+    
+    const propertyUnit = await PropertyUnit.findOne(query);
     if (!propertyUnit) {
       return res.status(404).json({
         success: false,
-        message: 'Property unit not found'
+        message: 'Property unit not found or you do not have access'
       });
     }
     
@@ -655,21 +632,13 @@ exports.addPropertyUnit = async (req, res) => {
   }
 };
 
-// @desc    Remove property unit from batch (Admin only)
+// @desc    Remove property unit from batch
 // @route   POST /api/property-batches/:id/remove-unit
-// @access  Private/Admin
+// @access  Private
 exports.removePropertyUnit = async (req, res) => {
   try {
     const { id } = req.params;
     const { propertyUnitId } = req.body;
-    
-    // Check if user is admin
-    if (!isAdminUser(req.user)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Only administrators can modify batches.'
-      });
-    }
     
     if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(propertyUnitId)) {
       return res.status(400).json({
@@ -683,6 +652,17 @@ exports.removePropertyUnit = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Property batch not found'
+      });
+    }
+    
+    // Check permissions
+    const isAdminUser = req.user?.isAdmin || req.user?.userType === 'superadmin' || req.user?.userType === 'admin';
+    const isOwner = batch.createdBy.toString() === req.user._id.toString();
+    
+    if (!isAdminUser && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to modify this batch'
       });
     }
     
@@ -711,7 +691,7 @@ exports.removePropertyUnit = async (req, res) => {
   }
 };
 
-// @desc    Get batches by location (Public)
+// @desc    Get batches by location
 // @route   GET /api/property-batches/location/:location
 // @access  Public
 exports.getBatchesByLocation = async (req, res) => {
@@ -746,20 +726,12 @@ exports.getBatchesByLocation = async (req, res) => {
   }
 };
 
-// @desc    Toggle batch active status (Admin only)
+// @desc    Toggle batch active status
 // @route   PATCH /api/property-batches/:id/toggle-active
-// @access  Private/Admin
+// @access  Private (Admin/Owner)
 exports.toggleActiveStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    
-    // Check if user is admin
-    if (!isAdminUser(req.user)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Only administrators can change batch status.'
-      });
-    }
     
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -773,6 +745,17 @@ exports.toggleActiveStatus = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Property batch not found'
+      });
+    }
+    
+    // Only admin or owner can toggle status
+    const isAdminUser = req.user?.isAdmin || req.user?.userType === 'superadmin' || req.user?.userType === 'admin';
+    const isOwner = batch.createdBy.toString() === req.user._id.toString();
+    
+    if (!isAdminUser && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to change batch status'
       });
     }
     
