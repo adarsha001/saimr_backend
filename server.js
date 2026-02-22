@@ -7,6 +7,7 @@ const agentRoutes = require("./routes/agentroute");
 const propertyUnitRoutes = require('./routes/propertyUnitRoutes');
 const adminPropertyUnitRoutes = require('./routes/adminPropertyUnitRoutes'); // Correct import
 const propertyBatchRoutes = require('./routes/propertyBatchRoutes'); // Correct import
+const carouselRoutes = require('./routes/carouselRoutes');
 dotenv.config();
 
 const app = express();
@@ -42,6 +43,7 @@ app.use('/sitemap.xml', express.static('public/sitemap.xml'));
 // Routes
 app.use("/api/properties", propertyRoutes);
 app.use('/api/admin/batches',propertyBatchRoutes);
+app.use('/api/carousel', carouselRoutes);
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
