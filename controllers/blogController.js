@@ -34,17 +34,21 @@ const createBlog = async (req, res) => {
       };
     }
 
-    // Handle keywords - FIX THE ERROR HERE
+    // Handle keywords
     let keywords = [];
     if (req.body.keywords) {
       if (Array.isArray(req.body.keywords)) {
-        // If it's already an array (from your AI output)
         keywords = req.body.keywords;
       } else if (typeof req.body.keywords === 'string') {
-        // If it's a string (from form data)
         keywords = req.body.keywords.split(',').map(k => k.trim());
       }
     }
+
+    // Generate slug from title - FIX HERE
+    const slug = req.body.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
 
     // Get createdBy
     const createdBy = req.user?._id || req.body.createdBy;
@@ -56,14 +60,15 @@ const createBlog = async (req, res) => {
       });
     }
 
-    // Create blog post
+    // Create blog post - NOW INCLUDING SLUG
     const blog = await Blog.create({
       title: req.body.title,
+      slug: slug, // 👈 ADD THIS LINE
       question: req.body.question,
       answer: req.body.answer,
       image: imageData,
       metaDescription: req.body.metaDescription || req.body.question.substring(0, 160),
-      keywords: keywords, // Use the processed keywords
+      keywords: keywords,
       createdBy,
       status: req.body.status || 'published'
     });
@@ -83,8 +88,6 @@ const createBlog = async (req, res) => {
     });
   }
 };
-
-
 module.exports = {
   createBlog,
 
