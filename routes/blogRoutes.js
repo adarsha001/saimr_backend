@@ -7,7 +7,7 @@ const {
 } = require('../controllers/blogController');
 
 // Public routes
-router.get('/', createBlog);
+router.post('/', createBlog);
 
 
 module.exports = router;
