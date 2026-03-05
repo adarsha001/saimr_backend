@@ -25,9 +25,28 @@ const createBlog = async (req, res) => {
         public_id: null,
         altText: req.body.imageAlt || req.body.title
       };
+    } else if (req.body.image && req.body.image.url) {
+      // Handle image object from n8n
+      imageData = {
+        url: req.body.image.url,
+        public_id: req.body.image.public_id || null,
+        altText: req.body.image.altText || req.body.title
+      };
     }
 
-    // Get createdBy (from auth or from body for n8n)
+    // Handle keywords - FIX THE ERROR HERE
+    let keywords = [];
+    if (req.body.keywords) {
+      if (Array.isArray(req.body.keywords)) {
+        // If it's already an array (from your AI output)
+        keywords = req.body.keywords;
+      } else if (typeof req.body.keywords === 'string') {
+        // If it's a string (from form data)
+        keywords = req.body.keywords.split(',').map(k => k.trim());
+      }
+    }
+
+    // Get createdBy
     const createdBy = req.user?._id || req.body.createdBy;
     
     if (!createdBy) {
@@ -44,7 +63,7 @@ const createBlog = async (req, res) => {
       answer: req.body.answer,
       image: imageData,
       metaDescription: req.body.metaDescription || req.body.question.substring(0, 160),
-      keywords: req.body.keywords ? req.body.keywords.split(',').map(k => k.trim()) : [],
+      keywords: keywords, // Use the processed keywords
       createdBy,
       status: req.body.status || 'published'
     });
