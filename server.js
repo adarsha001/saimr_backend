@@ -8,6 +8,7 @@ const propertyUnitRoutes = require('./routes/propertyUnitRoutes');
 const adminPropertyUnitRoutes = require('./routes/adminPropertyUnitRoutes'); // Correct import
 const propertyBatchRoutes = require('./routes/propertyBatchRoutes'); // Correct import
 const carouselRoutes = require('./routes/carouselRoutes');
+const blogRoutes = require('./routes/blogRoutes');
 dotenv.config();
 
 const app = express();
@@ -19,7 +20,7 @@ const allowedOrigins = [
   "https://www.cleartitle1.com",
   "https://saimr-frontend1.vercel.app",
   "https://www.saimrgroups.com",
-  "https://saimr-frontend-ebon.vercel.app"
+  "https://saimr-frontend-ebon.vercel.app","http://localhost:5555"
 ];
 
 app.use(cors({
@@ -41,9 +42,12 @@ app.use('/robots.txt', express.static('public/robots.txt'));
 app.use('/sitemap.xml', express.static('public/sitemap.xml'));
 
 // Routes
+
 app.use("/api/properties", propertyRoutes);
 app.use('/api/admin/batches',propertyBatchRoutes);
 app.use('/api/carousel', carouselRoutes);
+
+app.use('/api/blogs', blogRoutes);
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
