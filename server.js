@@ -9,6 +9,7 @@ const adminPropertyUnitRoutes = require('./routes/adminPropertyUnitRoutes'); // 
 const propertyBatchRoutes = require('./routes/propertyBatchRoutes'); // Correct import
 const carouselRoutes = require('./routes/carouselRoutes');
 const blogRoutes = require('./routes/blogRoutes');
+const helmet=require("helmet")
 dotenv.config();
 
 const app = express();
@@ -40,7 +41,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json({ limit: "10mb" }));
 app.use('/robots.txt', express.static('public/robots.txt'));
 app.use('/sitemap.xml', express.static('public/sitemap.xml'));
-
+app.use(helmet())
 // Routes
 
 app.use("/api/properties", propertyRoutes);
