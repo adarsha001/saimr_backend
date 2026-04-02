@@ -16,6 +16,11 @@ const getAllPropertyUnits = async (req, res) => {
       availability,
       listingType,
       createdBy,
+      unitType, // Added for filtering by unit type
+      furnishing, // Added for filtering by furnishing status
+      possessionStatus, // Added for filtering by possession status
+      minPrice, // Added for price range filtering
+      maxPrice,
       page = 1,
       limit = 50,
       sortBy = 'createdAt',
@@ -71,6 +76,28 @@ const getAllPropertyUnits = async (req, res) => {
       filter.createdBy = createdBy.trim();
     }
 
+    // Filter by unit type (nested in unitTypes array)
+    if (unitType && unitType.trim() !== '') {
+      filter['unitTypes.type'] = unitType.trim();
+    }
+
+    // Filter by furnishing status
+    if (furnishing && furnishing.trim() !== '') {
+      filter['commonSpecifications.furnishing'] = furnishing.trim();
+    }
+
+    // Filter by possession status
+    if (possessionStatus && possessionStatus.trim() !== '') {
+      filter['commonSpecifications.possessionStatus'] = possessionStatus.trim();
+    }
+
+    // Price range filter (using unitTypes price)
+    if (minPrice || maxPrice) {
+      filter['unitTypes.price.amount'] = {};
+      if (minPrice) filter['unitTypes.price.amount'].$gte = parseFloat(minPrice);
+      if (maxPrice) filter['unitTypes.price.amount'].$lte = parseFloat(maxPrice);
+    }
+
     // Calculate pagination
     const pageNum = Math.max(1, parseInt(page) || 1);
     const limitNum = Math.min(Math.max(1, parseInt(limit) || 50), 200);
@@ -89,7 +116,10 @@ const getAllPropertyUnits = async (req, res) => {
       'viewCount': 'viewCount',
       'approvalStatus': 'approvalStatus',
       'isFeatured': 'isFeatured',
-      'isVerified': 'isVerified'
+      'isVerified': 'isVerified',
+      'likes': 'likes',
+      'inquiryCount': 'inquiryCount',
+      'favoriteCount': 'favoriteCount'
     };
 
     const sortField = allowedSortFields[sortBy] || 'createdAt';
@@ -108,7 +138,6 @@ const getAllPropertyUnits = async (req, res) => {
       .skip(skip)
       .limit(limitNum)
       .populate('createdBy', 'name email phoneNumber avatar userType')
-      .populate('parentProperty', 'name title images')
       .lean();
 
     // Get total count
@@ -118,6 +147,9 @@ const getAllPropertyUnits = async (req, res) => {
     const cities = await PropertyUnit.distinct('city').sort();
     const propertyTypes = await PropertyUnit.distinct('propertyType').sort();
     const approvalStatuses = await PropertyUnit.distinct('approvalStatus').sort();
+    const unitTypes = await PropertyUnit.distinct('unitTypes.type').sort();
+    const furnishingOptions = ['unfurnished', 'semi-furnished', 'fully-furnished'];
+    const possessionStatuses = ['ready-to-move', 'under-construction', 'resale'];
 
     res.status(200).json({
       success: true,
@@ -129,7 +161,10 @@ const getAllPropertyUnits = async (req, res) => {
       filters: {
         cities,
         propertyTypes,
-        approvalStatuses
+        approvalStatuses,
+        unitTypes,
+        furnishingOptions,
+        possessionStatuses
       }
     });
 
@@ -157,7 +192,6 @@ const getPropertyUnitByIdAdmin = async (req, res) => {
 
     const propertyUnit = await PropertyUnit.findById(id)
       .populate('createdBy', 'name email phoneNumber avatar userType')
-      .populate('parentProperty', 'name title images')
       .lean();
 
     if (!propertyUnit) {
@@ -205,7 +239,34 @@ const getPropertyUnitStats = async (req, res) => {
       { $sort: { count: -1 } },
       { $limit: 10 }
     ]);
-    
+
+    // Count by unit type (unwind the unitTypes array)
+    const unitTypeStats = await PropertyUnit.aggregate([
+      { $unwind: '$unitTypes' },
+      { $group: { _id: '$unitTypes.type', count: { $sum: 1 } } },
+      { $sort: { count: -1 } }
+    ]);
+
+    // Count by furnishing status
+    const furnishingStats = await PropertyUnit.aggregate([
+      { $group: { _id: '$commonSpecifications.furnishing', count: { $sum: 1 } } }
+    ]);
+
+    // Count by possession status
+    const possessionStats = await PropertyUnit.aggregate([
+      { $group: { _id: '$commonSpecifications.possessionStatus', count: { $sum: 1 } } }
+    ]);
+
+    // Count by listing type
+    const listingTypeStats = await PropertyUnit.aggregate([
+      { $group: { _id: '$listingType', count: { $sum: 1 } } }
+    ]);
+
+    // RERA registered count
+    const reraRegistered = await PropertyUnit.countDocuments({
+      'legalDetails.reraRegistered': true
+    });
+
     // Recent activity (last 7 days)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -213,6 +274,19 @@ const getPropertyUnitStats = async (req, res) => {
     const recentAdded = await PropertyUnit.countDocuments({
       createdAt: { $gte: sevenDaysAgo }
     });
+
+    // Total views, inquiries, favorites
+    const totalStats = await PropertyUnit.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalViews: { $sum: '$viewCount' },
+          totalInquiries: { $sum: '$inquiryCount' },
+          totalFavorites: { $sum: '$favoriteCount' },
+          totalLikes: { $sum: '$likes' }
+        }
+      }
+    ]);
 
     res.status(200).json({
       success: true,
@@ -223,9 +297,20 @@ const getPropertyUnitStats = async (req, res) => {
         rejected,
         featured,
         verified,
+        reraRegistered,
         propertyTypeStats,
         cityStats,
-        recentAdded
+        unitTypeStats,
+        furnishingStats,
+        possessionStats,
+        listingTypeStats,
+        recentAdded,
+        totalStats: totalStats[0] || {
+          totalViews: 0,
+          totalInquiries: 0,
+          totalFavorites: 0,
+          totalLikes: 0
+        }
       }
     });
 
@@ -242,10 +327,21 @@ const getPropertyUnitStats = async (req, res) => {
 // ✅ Create property unit (Admin)
 const createPropertyUnitAdmin = async (req, res) => {
   try {
-    // This is similar to your existing createPropertyUnit function
-    // but with admin privileges
     const { ...data } = req.body;
     
+    // Validate unitTypes data
+    if (data.unitTypes && Array.isArray(data.unitTypes)) {
+      data.unitTypes = data.unitTypes.map(unit => ({
+        ...unit,
+        // Ensure price object structure
+        price: {
+          amount: unit.price?.amount || unit.price,
+          currency: unit.price?.currency || 'INR',
+          perUnit: unit.price?.perUnit || 'total'
+        }
+      }));
+    }
+
     // Admin can set all fields directly
     const propertyUnit = new PropertyUnit({
       ...data,
@@ -274,15 +370,268 @@ const createPropertyUnitAdmin = async (req, res) => {
 const updatePropertyUnitAdmin = async (req, res) => {
   try {
     const { id } = req.params;
-    const updateData = req.body;
+    
+    // Parse data if it comes as JSON string in FormData
+    let updateData = req.body;
+    if (req.body.data) {
+      try {
+        updateData = JSON.parse(req.body.data);
+        console.log('Parsed admin update data:', Object.keys(updateData));
+      } catch (e) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid JSON data format: ' + e.message
+        });
+      }
+    }
 
+    // Validate required fields for admin update
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Property unit ID is required'
+      });
+    }
+
+    // Find existing property unit first
+    const existingPropertyUnit = await PropertyUnit.findById(id);
+    if (!existingPropertyUnit) {
+      return res.status(404).json({
+        success: false,
+        message: 'Property unit not found'
+      });
+    }
+
+    // Prepare update data with proper number conversions
+    const preparedData = {};
+
+    // Basic fields
+    const basicFields = [
+      'title', 'description', 'city', 'address', 'mapUrl', 'locationNearby',
+      'propertyType', 'listingType', 'availability', 'isFeatured', 'isVerified',
+      'approvalStatus', 'rejectionReason', 'contactPreference', 'viewingSchedule',
+      'displayOrder', 'unitFeatures'
+    ];
+
+    basicFields.forEach(field => {
+      if (updateData[field] !== undefined) {
+        preparedData[field] = updateData[field];
+      }
+    });
+
+    // Handle unitTypes with validation
+    if (updateData.unitTypes && Array.isArray(updateData.unitTypes)) {
+      preparedData.unitTypes = updateData.unitTypes.map(unit => {
+        // Basic unit validation
+        if (!unit.type) {
+          throw new Error('Unit type is required for each unit');
+        }
+        
+        // Prepare price object
+        let priceAmount = 0;
+        if (unit.price) {
+          if (typeof unit.price === 'object') {
+            priceAmount = unit.price.amount ? Number(unit.price.amount) : 0;
+          } else {
+            priceAmount = Number(unit.price) || 0;
+          }
+        }
+
+        const unitData = {
+          type: unit.type,
+          price: {
+            amount: priceAmount,
+            currency: unit.price?.currency || 'INR',
+            perUnit: unit.price?.perUnit || 'total'
+          },
+          carpetArea: unit.carpetArea ? Number(unit.carpetArea) : 0,
+          builtUpArea: unit.builtUpArea ? Number(unit.builtUpArea) : 0,
+          superBuiltUpArea: unit.superBuiltUpArea ? Number(unit.superBuiltUpArea) : 0,
+          availability: unit.availability || 'available',
+          totalUnits: unit.totalUnits ? Number(unit.totalUnits) : 0,
+          availableUnits: unit.availableUnits ? Number(unit.availableUnits) : 0
+        };
+
+        // Handle plot details for Plot type
+        if (unit.type === 'Plot' && unit.plotDetails) {
+          unitData.plotDetails = {
+            dimensions: {
+              length: unit.plotDetails.dimensions?.length ? Number(unit.plotDetails.dimensions.length) : 0,
+              breadth: unit.plotDetails.dimensions?.breadth ? Number(unit.plotDetails.dimensions.breadth) : 0,
+              frontage: unit.plotDetails.dimensions?.frontage ? Number(unit.plotDetails.dimensions.frontage) : 0
+            },
+            area: {
+              sqft: unit.plotDetails.area?.sqft ? Number(unit.plotDetails.area.sqft) : (unit.carpetArea ? Number(unit.carpetArea) : 0),
+              sqYards: unit.plotDetails.area?.sqYards ? Number(unit.plotDetails.area.sqYards) : 0,
+              grounds: unit.plotDetails.area?.grounds ? Number(unit.plotDetails.area.grounds) : 0,
+              acres: unit.plotDetails.area?.acres ? Number(unit.plotDetails.area.acres) : 0,
+              cents: unit.plotDetails.area?.cents ? Number(unit.plotDetails.area.cents) : 0
+            },
+            shape: unit.plotDetails.shape || 'rectangle',
+            facing: unit.plotDetails.facing || '',
+            isCornerPlot: unit.plotDetails.isCornerPlot || false,
+            cornerRoads: unit.plotDetails.cornerRoads || [],
+            roadWidth: unit.plotDetails.roadWidth ? Number(unit.plotDetails.roadWidth) : 0,
+            roadType: unit.plotDetails.roadType || 'secondary',
+            boundaryWalls: unit.plotDetails.boundaryWalls || false,
+            fencing: unit.plotDetails.fencing || false,
+            gate: unit.plotDetails.gate || false,
+            elevationAvailable: unit.plotDetails.elevationAvailable || false,
+            soilType: unit.plotDetails.soilType || '',
+            landUse: unit.plotDetails.landUse || 'residential',
+            developmentStatus: unit.plotDetails.developmentStatus || 'developed',
+            amenities: unit.plotDetails.amenities || [],
+            utilities: {
+              electricity: unit.plotDetails.utilities?.electricity || false,
+              waterConnection: unit.plotDetails.utilities?.waterConnection || false,
+              sewageConnection: unit.plotDetails.utilities?.sewageConnection || false,
+              gasConnection: unit.plotDetails.utilities?.gasConnection || false,
+              internetFiber: unit.plotDetails.utilities?.internetFiber || false
+            },
+            approvalDetails: {
+              dtcpApproved: unit.plotDetails.approvalDetails?.dtcpApproved || false,
+              dtcpNumber: unit.plotDetails.approvalDetails?.dtcpNumber || '',
+              layoutApproved: unit.plotDetails.approvalDetails?.layoutApproved || false,
+              layoutNumber: unit.plotDetails.approvalDetails?.layoutNumber || '',
+              surveyNumber: unit.plotDetails.approvalDetails?.surveyNumber || '',
+              pattaNumber: unit.plotDetails.approvalDetails?.pattaNumber || '',
+              subdivisionApproved: unit.plotDetails.approvalDetails?.subdivisionApproved || false
+            }
+          };
+        }
+
+        return unitData;
+      });
+    }
+
+    // Handle buildingDetails
+    if (updateData.buildingDetails) {
+      preparedData.buildingDetails = {
+        name: updateData.buildingDetails.name || '',
+        totalFloors: updateData.buildingDetails.totalFloors ? Number(updateData.buildingDetails.totalFloors) : 0,
+        totalUnits: updateData.buildingDetails.totalUnits ? Number(updateData.buildingDetails.totalUnits) : 0,
+        yearBuilt: updateData.buildingDetails.yearBuilt ? Number(updateData.buildingDetails.yearBuilt) : 0,
+        amenities: updateData.buildingDetails.amenities || []
+      };
+    }
+
+    // Handle commonSpecifications
+    if (updateData.commonSpecifications) {
+      preparedData.commonSpecifications = {
+        furnishing: updateData.commonSpecifications.furnishing || 'unfurnished',
+        possessionStatus: updateData.commonSpecifications.possessionStatus || 'ready-to-move',
+        ageOfProperty: updateData.commonSpecifications.ageOfProperty ? Number(updateData.commonSpecifications.ageOfProperty) : 0,
+        parking: {
+          covered: updateData.commonSpecifications.parking?.covered ? Number(updateData.commonSpecifications.parking.covered) : 0,
+          open: updateData.commonSpecifications.parking?.open ? Number(updateData.commonSpecifications.parking.open) : 0
+        },
+        kitchenType: updateData.commonSpecifications.kitchenType || 'regular'
+      };
+    }
+
+    // Handle ownerDetails
+    if (updateData.ownerDetails) {
+      preparedData.ownerDetails = {
+        name: updateData.ownerDetails.name || '',
+        phoneNumber: updateData.ownerDetails.phoneNumber || '',
+        email: updateData.ownerDetails.email || '',
+        reasonForSelling: updateData.ownerDetails.reasonForSelling || ''
+      };
+    }
+
+    // Handle legalDetails
+    if (updateData.legalDetails) {
+      preparedData.legalDetails = {
+        reraRegistered: updateData.legalDetails.reraRegistered || false,
+        reraNumber: updateData.legalDetails.reraNumber || '',
+        reraWebsiteLink: updateData.legalDetails.reraWebsiteLink || '',
+        sanctioningAuthority: updateData.legalDetails.sanctioningAuthority || '',
+        sanctionNumber: updateData.legalDetails.sanctionNumber || '',
+        sanctionDate: updateData.legalDetails.sanctionDate || null,
+        occupancyCertificate: updateData.legalDetails.occupancyCertificate || false,
+        occupancyCertificateNumber: updateData.legalDetails.occupancyCertificateNumber || '',
+        occupancyCertificateDate: updateData.legalDetails.occupancyCertificateDate || null,
+        commencementCertificate: updateData.legalDetails.commencementCertificate || false,
+        commencementCertificateNumber: updateData.legalDetails.commencementCertificateNumber || '',
+        commencementCertificateDate: updateData.legalDetails.commencementCertificateDate || null,
+        khataStatus: updateData.legalDetails.khataStatus || 'Not Applicable',
+        clearTitle: updateData.legalDetails.clearTitle || false,
+        motherDeedAvailable: updateData.legalDetails.motherDeedAvailable || false,
+        conversionCertificate: updateData.legalDetails.conversionCertificate || false,
+        conversionType: updateData.legalDetails.conversionType || '',
+        encumbranceCertificate: updateData.legalDetails.encumbranceCertificate || false,
+        encumbranceYears: updateData.legalDetails.encumbranceYears ? Number(updateData.legalDetails.encumbranceYears) : 0,
+        ownershipType: updateData.legalDetails.ownershipType || 'freehold',
+        bankApprovals: updateData.legalDetails.bankApprovals || [],
+        legalStatusSummary: updateData.legalDetails.legalStatusSummary || '',
+        legalVerified: updateData.legalDetails.legalVerified || false,
+        legalVerificationDate: updateData.legalDetails.legalVerificationDate || null,
+        legalVerifier: updateData.legalDetails.legalVerifier || ''
+      };
+    }
+
+    // Handle viewing schedule
+    if (updateData.viewingSchedule && Array.isArray(updateData.viewingSchedule)) {
+      preparedData.viewingSchedule = updateData.viewingSchedule.map(slot => ({
+        date: slot.date,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        slotsAvailable: slot.slotsAvailable ? Number(slot.slotsAvailable) : 1
+      }));
+    }
+
+    // Handle contact preference
+    if (updateData.contactPreference && Array.isArray(updateData.contactPreference)) {
+      preparedData.contactPreference = updateData.contactPreference;
+    }
+
+    // Handle image uploads (if files are present)
+    if (req.files && req.files.length > 0) {
+      const cloudinary = require('cloudinary').v2;
+      const newImages = [];
+      
+      for (let file of req.files) {
+        try {
+          const result = await cloudinary.uploader.upload(file.path, {
+            folder: "property-units",
+          });
+          
+          newImages.push({
+            url: result.secure_url,
+            public_id: result.public_id,
+            caption: ""
+          });
+        } catch (uploadError) {
+          console.error('Cloudinary upload error:', uploadError);
+        }
+      }
+      
+      // Merge existing images with new ones
+      const existingImages = existingPropertyUnit.images || [];
+      preparedData.images = [...existingImages, ...newImages];
+    }
+
+    // Validate rejection reason if status is rejected
+    if (preparedData.approvalStatus === 'rejected' && !preparedData.rejectionReason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rejection reason is required when rejecting a property unit'
+      });
+    }
+
+    // Remove undefined fields
+    Object.keys(preparedData).forEach(key => {
+      if (preparedData[key] === undefined) {
+        delete preparedData[key];
+      }
+    });
+
+    // Update the property unit
     const propertyUnit = await PropertyUnit.findByIdAndUpdate(
       id,
-      updateData,
+      preparedData,
       { new: true, runValidators: true }
-    )
-    .populate('createdBy', 'name email phoneNumber')
-    .populate('parentProperty', 'title');
+    ).populate('createdBy', 'name email phoneNumber');
 
     if (!propertyUnit) {
       return res.status(404).json({
@@ -293,12 +642,32 @@ const updatePropertyUnitAdmin = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Property unit updated successfully',
+      message: 'Property unit updated successfully by admin',
       data: propertyUnit
     });
 
   } catch (error) {
     console.error('Update property unit admin error:', error);
+    
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors
+      });
+    }
+
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Duplicate field value entered',
+        error: error.keyPattern
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: 'Error updating property unit',

@@ -2,17 +2,9 @@ const mongoose = require("mongoose");
 
 const propertyUnitSchema = new mongoose.Schema(
   {
-    // Parent Property Reference (for grouping units in same project/building)
-    parentProperty: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Property",
-      required: false, // Optional if standalone unit
-    },
-
     // Basic Information
     title: { type: String, required: true, trim: true },
     description: { type: String, trim: true },
-    unitNumber: { type: String, trim: true }, // e.g., "Unit 101", "Villa A1"
 
     // Images
     images: [
@@ -26,20 +18,25 @@ const propertyUnitSchema = new mongoose.Schema(
     // Location
     city: { type: String, required: true },
     address: { type: String, required: true },
-    coordinates: { latitude: Number, longitude: Number },
- mapUrl: { type: String }, 
-    // Price
-    price: {
-      amount: { type:String, required: true },
-      currency: { type: String, default: "INR" },
-      perUnit: { 
-        type: String, 
-        enum: ["total", "sqft", "sqm", "month"], 
-        default: "total" 
+    mapUrl: { type: String },
+
+    // Location Nearby (Amenities and landmarks near the property)
+    locationNearby: [
+      {
+        name: { type: String, required: true }, // e.g., "Metro Station", "School", "Hospital"
+        distance: { type: String, required: true }, // e.g., "500m", "1.2km"
+        type: {
+          type: String,
+          enum: ["transport", "education", "healthcare", "shopping", "entertainment", "banking", "religious", "park", "restaurant", "other"],
+          default: "other"
+        },
+        icon: { type: String }, // Optional icon identifier
+        coordinates: {
+          latitude: Number,
+          longitude: Number
+        }
       }
-    },
-    maintenanceCharges: { type: Number, default: 0 },
-    securityDeposit: { type: Number, default: 0 },
+    ],
 
     // Unit Category
     propertyType: {
@@ -52,36 +49,161 @@ const propertyUnitSchema = new mongoose.Schema(
         "Penthouse",
         "Duplex",
         "Pg house",
-        "Plot", // For smaller plots
+        "Plot",
         "Commercial Space"
       ],
       required: true,
     },
 
-    // 🏠 Unit Specifications
-    specifications: {
-      // Bedrooms & Bathrooms
-      bedrooms: { 
-        type: Number, 
-        required: true,
-    
+    // 🏠 Multiple Unit Types (For projects with different configurations)
+    unitTypes: [
+      {
+        type: {
+          type: String,
+          required: true,
+          enum: ["1BHK", "2BHK", "3BHK", "4BHK", "5BHK", "Studio", "Penthouse", "Duplex", "Plot"]
+        },
+        price: {
+          amount: { type: Number, required: true },
+          currency: { type: String, default: "INR" },
+          perUnit: {
+            type: String,
+            enum: ["total", "sqft", "sqm", "month", "perSqYard", "perGround"],
+            default: "total"
+          }
+        },
+        carpetArea: { type: Number,  }, // in sqft
+        builtUpArea: { type: Number, }, // in sqft
+        superBuiltUpArea: { type: Number },
+        
+        // Plot-specific fields
+        plotDetails: {
+          dimensions: {
+            length: { type: Number }, // in feet
+            breadth: { type: Number }, // in feet
+            frontage: { type: Number }, // in feet
+          },
+          area: {
+            sqft: { type: Number },
+            sqYards: { type: Number },
+            grounds: { type: Number },
+            acres: { type: Number },
+            cents: { type: Number }
+          },
+          shape: {
+            type: String,
+            enum: ["square", "rectangle", "corner", "irregular", "triangular"],
+            default: "rectangle"
+          },
+          facing: {
+            type: String,
+            enum: ["north", "south", "east", "west", "north-east", "north-west", "south-east", "south-west"],
+          },
+          isCornerPlot: { type: Boolean, default: false },
+          cornerRoads: [String], // e.g., ["Main Road", "Cross Road"]
+          roadWidth: { type: Number }, // in feet
+          roadType: {
+            type: String,
+            enum: ["main", "secondary", "internal", "service", "highway"],
+            default: "secondary"
+          },
+          boundaryWalls: { type: Boolean, default: false },
+          fencing: { type: Boolean, default: false },
+          gate: { type: Boolean, default: false },
+          elevationAvailable: { type: Boolean, default: false },
+          soilType: {
+            type: String,
+            enum: ["black", "red", "clay", "loamy", "sandy", "rocky", "other"],
+          },
+          landUse: {
+            type: String,
+            enum: ["residential", "commercial", "agricultural", "industrial", "mixed-use", "institutional"],
+            default: "residential"
+          },
+          developmentStatus: {
+            type: String,
+            enum: ["developed", "semi-developed", "undeveloped"],
+            default: "developed"
+          },
+          amenities: [String], // e.g., ["Electricity", "Water Connection", "Sewage", "Road Access"]
+          utilities: {
+            electricity: { type: Boolean, default: false },
+            waterConnection: { type: Boolean, default: false },
+            sewageConnection: { type: Boolean, default: false },
+            gasConnection: { type: Boolean, default: false },
+            internetFiber: { type: Boolean, default: false }
+          },
+          approvalDetails: {
+            dtcpApproved: { type: Boolean, default: false },
+            dtcpNumber: { type: String },
+            layoutApproved: { type: Boolean, default: false },
+            layoutNumber: { type: String },
+            surveyNumber: { type: String },
+            pattaNumber: { type: String },
+            subdivisionApproved: { type: Boolean, default: false }
+          }
+        },
+        
+        floors: { type: Number, default: 1 },
+        floorNumber: { type: Number },
+        availability: {
+          type: String,
+          enum: ["available", "sold", "limited", "coming-soon", "booked", "reserved"],
+          default: "available"
+        },
+        totalUnits: { type: Number },
+        availableUnits: { type: Number }
+      }
+    ],
+
+    // 🏢 Building/Project Details (if applicable)
+    buildingDetails: {
+      name: { type: String, trim: true },
+      totalFloors: { type: Number },
+      totalUnits: { type: Number },
+      yearBuilt: { type: Number },
+      amenities: [String],
+    },
+
+    // 🏠 Unit Features
+    unitFeatures: [
+      {
+        type: String,
+        enum: [
+          "Air Conditioning",
+          "Modular Kitchen",
+          "Wardrobes",
+          "Geyser",
+          "Exhaust Fan",
+          "Chimney",
+          "Lighting",
+          "Ceiling Fans",
+          "Smart Home Automation",
+          "Central AC",
+          "bore water",
+          "Walk-in Closet",
+          "Study Room",
+          "Pooja Room",
+          "Utility Area",
+          "Servant Room",
+          "Private Garden",
+          "Terrace",
+          "Balcony",
+          "Swimming Pool",
+          "Video Door Phone",
+          "Security Alarm",
+          "Fire Safety",
+          "CCTV",
+          "Pet Friendly",
+          "Wheelchair Access",
+          "Natural Light",
+          "View"
+        ],
       },
-      bathrooms: { 
-        type: Number, 
-        required: true,
-     
-      },
-      balconies: { type: Number, default: 0 },
-      floors: { type: Number, default: 1 }, // Number of floors in this unit
-      floorNumber: { type: Number }, // Floor number in building
-      
-      // Area Measurements
-      carpetArea: { type: Number, required: true }, // in sqft
-      builtUpArea: { type: Number, required: true }, // in sqft
-      superBuiltUpArea: { type: Number }, // in sqft
-      plotArea: { type: Number }, // For villas/independent houses
-      
-      // Unit Status
+    ],
+
+    // Common Specifications
+    commonSpecifications: {
       furnishing: {
         type: String,
         enum: ["unfurnished", "semi-furnished", "fully-furnished"],
@@ -92,91 +214,16 @@ const propertyUnitSchema = new mongoose.Schema(
         enum: ["ready-to-move", "under-construction", "resale"],
         default: "ready-to-move"
       },
-      ageOfProperty: { type: Number }, // in years
-      
-      // Parking
+      ageOfProperty: { type: Number },
       parking: {
         covered: { type: Number, default: 0 },
         open: { type: Number, default: 0 }
       },
-      
-      // Kitchen
       kitchenType: {
         type: String,
         enum: ["modular", "regular", "open", "closed", "none"],
         default: "regular"
       }
-    },
-
-    // 🏢 Building/Project Details (if applicable)
-    buildingDetails: {
-      name: { type: String, trim: true },
-      totalFloors: { type: Number },
-      totalUnits: { type: Number },
-      yearBuilt: { type: Number },
-      amenities: [String], // Shared amenities
-    },
-
-    // 🏠 Unit Features
-    unitFeatures: [
-      {
-        type: String,
-        enum: [
-          // Basic
-          "Air Conditioning",
-          "Modular Kitchen",
-          "Wardrobes",
-          "Geyser",
-          "Exhaust Fan",
-          "Chimney",
-          "Lighting",
-          "Ceiling Fans",
-          
-          // Luxury
-          "Smart Home Automation",
-          "Central AC",
-          "bore water",
-          "Walk-in Closet",
-          "Study Room",
-          "Pooja Room",
-          "Utility Area",
-          "Servant Room",
-          
-          // Outdoor
-          "Private Garden",
-          "Terrace",
-          "Balcony",
-          "Swimming Pool",
-          "bore water",
-          
-          // Safety & Security
-          "Video Door Phone",
-          "Security Alarm",
-          "Fire Safety",
-          "CCTV",
-          
-          // Additional
-          "Pet Friendly",
-          "Wheelchair Access",
-          "Natural Light",
-          "View"
-        ],
-      },
-    ],
-
-    // Rental Details (if for rent)
-    rentalDetails: {
-      availableForRent: { type: Boolean, default: false },
-      leaseDuration: { // Minimum lease period
-        value: { type: Number, default: 11 }, // months
-        unit: { type: String, enum: ["months", "years"], default: "months" }
-      },
-      rentNegotiable: { type: Boolean, default: true },
-      preferredTenants: {
-        type: [String],
-        enum: ["family", "bachelors", "corporate", "students", "any"]
-      },
-      includedInRent: [String] // e.g., ["maintenance", "electricity", "water"]
     },
 
     // Availability & Status
@@ -185,49 +232,32 @@ const propertyUnitSchema = new mongoose.Schema(
       enum: ["available", "sold", "rented", "under-agreement", "hold"],
       default: "available"
     },
-    
+
     // Featured & Verification Status
     isFeatured: { type: Boolean, default: false },
     isVerified: { type: Boolean, default: false },
-    
+
     // Approval Workflow
     approvalStatus: {
       type: String,
       enum: ["pending", "approved", "rejected"],
       default: "pending"
     },
-    
+
     // Listing Type
     listingType: {
       type: String,
-      enum: ["sale", "rent", "lease", "pg"], // PG = Paying Guest
+      enum: ["sale", "rent", "lease", "pg"],
       default: "sale"
     },
-      likes: {
-    type: Number,
-    default: 0
-  },
-    // 🌐 WEBSITE ASSIGNMENT
-    websiteAssignment: {
-      type: [String],
-      default: ["cleartitle"], // Default to cleartitle only
-      required: true,
-    },
     
-    // Rejection Reason (for admin use)
+    likes: {
+      type: Number,
+      default: 0
+    },
+
+    // Rejection Reason
     rejectionReason: { type: String, default: "" },
-    
-    // Virtual Tour
-    virtualTour: {
-      type: String // URL for 360° tour or video
-    },
-    
-    // Floor Plan
-    floorPlan: {
-      image: String,
-      public_id: String, // Added for Cloudinary deletion
-      description: String
-    },
 
     // 👤 Creator Information
     createdBy: {
@@ -235,7 +265,7 @@ const propertyUnitSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-    
+
     // 👤 Owner Information
     ownerDetails: {
       name: String,
@@ -246,17 +276,54 @@ const propertyUnitSchema = new mongoose.Schema(
 
     // ⚖️ Legal & Documentation
     legalDetails: {
+      reraRegistered: { type: Boolean, default: false },
+      reraNumber: { type: String, trim: true },
+      reraWebsiteLink: { type: String, trim: true },
+      sanctioningAuthority: { type: String, trim: true },
+      sanctionNumber: { type: String, trim: true },
+      sanctionDate: { type: Date },
+      occupancyCertificate: { type: Boolean, default: false },
+      occupancyCertificateNumber: { type: String, trim: true },
+      occupancyCertificateDate: { type: Date },
+      commencementCertificate: { type: Boolean, default: false },
+      commencementCertificateNumber: { type: String, trim: true },
+      commencementCertificateDate: { type: Date },
+      khataStatus: {
+        type: String,
+        enum: ["A-Khata", "B-Khata", "E-Khata", "Not Applicable"],
+        default: "Not Applicable"
+      },
+      clearTitle: { type: Boolean, default: false },
+      motherDeedAvailable: { type: Boolean, default: false },
+      conversionCertificate: { type: Boolean, default: false },
+      conversionType: { type: String, trim: true },
+      encumbranceCertificate: { type: Boolean, default: false },
+      encumbranceYears: { type: Number },
       ownershipType: {
         type: String,
-        enum: ["freehold", "leasehold", "cooperative", "power-of-attorney"]
+        enum: ["freehold", "leasehold", "cooperative", "power-of-attorney"],
+        default: "freehold"
       },
-      reraRegistered: Boolean,
-      reraNumber: String,
-      khataCertificate: Boolean,
-      encumbranceCertificate: Boolean,
-      occupancyCertificate: Boolean
+      bankApprovals: [
+        {
+          bankName: { type: String, required: true },
+          approved: { type: Boolean, default: true },
+          approvalDate: { type: Date },
+          referenceNumber: { type: String }
+        }
+      ],
+      legalStatusSummary: { type: String, trim: true },
+      legalVerified: { type: Boolean, default: false },
+      legalVerificationDate: { type: Date },
+      legalVerifier: { type: String, trim: true }
     },
-
+    slug: {
+      type: String,
+      unique: true,
+      sparse: true, // Allow multiple null values if needed
+      trim: true,
+      lowercase: true
+    },
     // 📅 Viewing & Contact
     viewingSchedule: [
       {
@@ -277,10 +344,7 @@ const propertyUnitSchema = new mongoose.Schema(
     inquiryCount: { type: Number, default: 0 },
     favoriteCount: { type: Number, default: 0 },
 
-    // 🔍 SEO & Display
-    metaTitle: String,
-    metaDescription: String,
-    slug: { type: String, unique: true, lowercase: true },
+    // Display
     displayOrder: { type: Number, default: 0 },
   },
   { 
@@ -290,77 +354,81 @@ const propertyUnitSchema = new mongoose.Schema(
   }
 );
 
-// Virtual for price per sqft
-propertyUnitSchema.virtual('pricePerSqft').get(function() {
-  if (this.price.perUnit === 'total' && this.specifications.carpetArea > 0) {
-    return this.price.amount / this.specifications.carpetArea;
-  }
-  return null;
-});
-
-// Virtual for full address
-propertyUnitSchema.virtual('fullAddress').get(function() {
-  let address = this.address;
-  if (this.unitNumber) {
-    address = `${this.unitNumber}, ${address}`;
-  }
-  if (this.buildingDetails && this.buildingDetails.name) {
-    address = `${this.buildingDetails.name}, ${address}`;
-  }
-  return `${address}, ${this.city}`;
-});
-
-// Indexes for better performance
-propertyUnitSchema.index({ city: 1, price: 1 });
-propertyUnitSchema.index({ "specifications.bedrooms": 1, "specifications.bathrooms": 1 });
-propertyUnitSchema.index({ coordinates: "2dsphere" });
-propertyUnitSchema.index({ availability: 1, isFeatured: 1 });
-propertyUnitSchema.index({ websiteAssignment: 1 });
-propertyUnitSchema.index({ approvalStatus: 1 });
-propertyUnitSchema.index({ isVerified: 1 });
-propertyUnitSchema.index({ listingType: 1 });
-propertyUnitSchema.index({ slug: 1 }, { unique: true });
-propertyUnitSchema.index({ createdBy: 1 });
-
-// Pre-save middleware to generate slug
-propertyUnitSchema.pre('save', function(next) {
-  if (this.isModified('title') || !this.slug) {
-    const slug = this.title
+propertyUnitSchema.pre('save', async function(next) {
+  if (!this.slug) {
+    // Generate slug from title
+    let slug = this.title
       .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .trim();
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
     
-    // Add unique identifier
-    this.slug = `${slug}-${Date.now().toString(36)}`;
+    // Add random suffix to ensure uniqueness
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
+    slug = `${slug}-${randomSuffix}`;
+    
+    // Check if slug already exists
+    let existingSlug = await this.constructor.findOne({ slug });
+    let counter = 1;
+    
+    while (existingSlug) {
+      slug = `${slug}-${counter}`;
+      existingSlug = await this.constructor.findOne({ slug });
+      counter++;
+    }
+    
+    this.slug = slug;
   }
-  
-  // Ensure websiteAssignment is always an array with unique values
-  if (this.websiteAssignment && this.websiteAssignment.length > 0) {
-    this.websiteAssignment = [...new Set(this.websiteAssignment)];
-  }
-  
   next();
 });
 
-// Method to get status badge color
-propertyUnitSchema.methods.getStatusBadge = function() {
-  const statusMap = {
-    'pending': 'warning',
-    'approved': 'success',
-    'rejected': 'danger',
-    'available': 'success',
-    'sold': 'secondary',
-    'rented': 'info',
-    'under-agreement': 'warning',
-    'hold': 'warning'
-  };
+// Virtual to get price range across all unit types
+propertyUnitSchema.virtual('priceRange').get(function() {
+  if (!this.unitTypes || this.unitTypes.length === 0) return null;
   
+  const prices = this.unitTypes.map(unit => unit.price.amount);
   return {
-    approval: statusMap[this.approvalStatus] || 'secondary',
-    availability: statusMap[this.availability] || 'secondary'
+    min: Math.min(...prices),
+    max: Math.max(...prices)
   };
-};
+});
+
+// Virtual to get all available unit types
+propertyUnitSchema.virtual('availableUnitTypes').get(function() {
+  if (!this.unitTypes) return [];
+  return this.unitTypes.filter(unit => 
+    unit.availability === 'available' && 
+    (unit.availableUnits === undefined || unit.availableUnits > 0)
+  );
+});
+
+// Virtual to get plot area in different units
+propertyUnitSchema.virtual('plotArea').get(function() {
+  if (this.propertyType !== 'Plot' || !this.unitTypes) return null;
+  
+  const plotUnits = this.unitTypes.filter(unit => unit.type === 'Plot');
+  if (plotUnits.length === 0) return null;
+  
+  return plotUnits.map(unit => ({
+    sqft: unit.plotDetails?.area?.sqft || unit.carpetArea,
+    sqYards: unit.plotDetails?.area?.sqYards,
+    grounds: unit.plotDetails?.area?.grounds,
+    acres: unit.plotDetails?.area?.acres,
+    cents: unit.plotDetails?.area?.cents
+  }));
+});
+
+// Indexes for better performance
+propertyUnitSchema.index({ city: 1 });
+propertyUnitSchema.index({ availability: 1, isFeatured: 1 });
+propertyUnitSchema.index({ approvalStatus: 1 });
+propertyUnitSchema.index({ isVerified: 1 });
+propertyUnitSchema.index({ listingType: 1 });
+propertyUnitSchema.index({ createdBy: 1 });
+propertyUnitSchema.index({ "legalDetails.reraRegistered": 1 });
+propertyUnitSchema.index({ "unitTypes.type": 1 });
+propertyUnitSchema.index({ "locationNearby.type": 1 });
+propertyUnitSchema.index({ propertyType: 1 }); // Added index for property type
+propertyUnitSchema.index({ "unitTypes.plotDetails.landUse": 1 }); // Index for plot land use
+propertyUnitSchema.index({ "unitTypes.plotDetails.developmentStatus": 1 }); // Index for plot development status
 
 module.exports = mongoose.model("PropertyUnit", propertyUnitSchema);

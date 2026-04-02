@@ -20,43 +20,32 @@ const createPropertyUnit = async (req, res) => {
     const {
       title,
       description,
-      unitNumber,
       city,
       address,
-      coordinates,
       mapUrl,
-      price,
-      maintenanceCharges,
-      securityDeposit,
       propertyType,
-      specifications,
+      unitTypes,
       buildingDetails,
       unitFeatures,
-      rentalDetails,
+      commonSpecifications,
       approvalStatus,
       isFeatured,
       isVerified,
       availability,
       listingType,
-      websiteAssignment,
-      virtualTour,
-      floorPlan,
+      locationNearby,
       ownerDetails,
       legalDetails,
-      viewingSchedule,
       contactPreference,
-      metaTitle,
-      metaDescription,
       displayOrder,
-      parentProperty,
       rejectionReason,
     } = req.body;
 
     // Check required fields
-    if (!title || !city || !address || !price || !propertyType) {
+    if (!title || !city || !address || !propertyType) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: title, city, address, price, propertyType'
+        message: 'Missing required fields: title, city, address, propertyType'
       });
     }
 
@@ -77,6 +66,203 @@ const createPropertyUnit = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: `Invalid property type. Must be one of: ${validPropertyTypes.join(', ')}`
+      });
+    }
+
+    // Validate listing type
+    const validListingTypes = ["sale", "rent", "lease", "pg"];
+    const finalListingType = listingType && validListingTypes.includes(listingType) ? listingType : "sale";
+
+    // Validate availability
+    const validAvailability = ["available", "sold", "rented", "under-agreement", "hold"];
+    const finalAvailability = availability && validAvailability.includes(availability) ? availability : "available";
+
+    // Parse and validate unitTypes
+    let parsedUnitTypes = [];
+    try {
+      parsedUnitTypes = unitTypes ? JSON.parse(unitTypes) : [];
+      
+      // Validate at least one unit type
+      if (parsedUnitTypes.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'At least one unit type is required'
+        });
+      }
+      
+      const validUnitTypes = ["1BHK", "2BHK", "3BHK", "4BHK", "5BHK", "Studio", "Penthouse", "Duplex", "Plot"];
+      const validAvailabilityOptions = ["available", "sold", "limited", "coming-soon", "booked", "reserved"];
+      
+      for (const unit of parsedUnitTypes) {
+        // Validate unit type
+        if (!unit.type || !validUnitTypes.includes(unit.type)) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid unit type. Must be one of: ${validUnitTypes.join(', ')}`
+          });
+        }
+        
+        // Validate price
+        if (!unit.price || !unit.price.amount) {
+          return res.status(400).json({
+            success: false,
+            message: `Price amount is required for ${unit.type}`
+          });
+        }
+        
+        // Set default price currency and perUnit if not provided
+        unit.price.currency = unit.price.currency || "INR";
+        unit.price.perUnit = unit.price.perUnit || "total";
+        
+        // Validate price.perUnit for plots
+        if (unit.type === 'Plot') {
+          const validPlotPriceUnits = ["total", "sqft", "sqm", "perSqYard", "perGround"];
+          if (unit.price.perUnit && !validPlotPriceUnits.includes(unit.price.perUnit)) {
+            return res.status(400).json({
+              success: false,
+              message: `For plots, price.perUnit must be one of: ${validPlotPriceUnits.join(', ')}`
+            });
+          }
+        }
+        
+        // Validate areas
+        if (!unit.carpetArea && unit.type !== 'Plot') {
+          return res.status(400).json({
+            success: false,
+            message: `Carpet area is required for ${unit.type}`
+          });
+        }
+        
+        if (!unit.builtUpArea && unit.type !== 'Plot') {
+          return res.status(400).json({
+            success: false,
+            message: `Built-up area is required for ${unit.type}`
+          });
+        }
+        
+        // Validate plot-specific fields
+        if (unit.type === 'Plot') {
+          // For plots, carpetArea and builtUpArea can be optional if plotDetails.area is provided
+          if (!unit.plotDetails?.area?.sqft && !unit.carpetArea) {
+            return res.status(400).json({
+              success: false,
+              message: 'For plots, either carpetArea or plotDetails.area.sqft must be provided'
+            });
+          }
+          
+          // Validate plot shape if provided
+          const validShapes = ["square", "rectangle", "corner", "irregular", "triangular"];
+          if (unit.plotDetails?.shape && !validShapes.includes(unit.plotDetails.shape)) {
+            return res.status(400).json({
+              success: false,
+              message: `Invalid plot shape. Must be one of: ${validShapes.join(', ')}`
+            });
+          }
+          
+          // Validate facing if provided
+          const validFacings = ["north", "south", "east", "west", "north-east", "north-west", "south-east", "south-west"];
+          if (unit.plotDetails?.facing && !validFacings.includes(unit.plotDetails.facing)) {
+            return res.status(400).json({
+              success: false,
+              message: `Invalid facing direction. Must be one of: ${validFacings.join(', ')}`
+            });
+          }
+          
+          // Validate road type if provided
+          const validRoadTypes = ["main", "secondary", "internal", "service", "highway"];
+          if (unit.plotDetails?.roadType && !validRoadTypes.includes(unit.plotDetails.roadType)) {
+            return res.status(400).json({
+              success: false,
+              message: `Invalid road type. Must be one of: ${validRoadTypes.join(', ')}`
+            });
+          }
+          
+          // Validate soil type if provided
+          const validSoilTypes = ["black", "red", "clay", "loamy", "sandy", "rocky", "other"];
+          if (unit.plotDetails?.soilType && !validSoilTypes.includes(unit.plotDetails.soilType)) {
+            return res.status(400).json({
+              success: false,
+              message: `Invalid soil type. Must be one of: ${validSoilTypes.join(', ')}`
+            });
+          }
+          
+          // Validate land use if provided
+          const validLandUses = ["residential", "commercial", "agricultural", "industrial", "mixed-use", "institutional"];
+          if (unit.plotDetails?.landUse && !validLandUses.includes(unit.plotDetails.landUse)) {
+            return res.status(400).json({
+              success: false,
+              message: `Invalid land use. Must be one of: ${validLandUses.join(', ')}`
+            });
+          }
+          
+          // Validate development status if provided
+          const validDevelopmentStatus = ["developed", "semi-developed", "undeveloped"];
+          if (unit.plotDetails?.developmentStatus && !validDevelopmentStatus.includes(unit.plotDetails.developmentStatus)) {
+            return res.status(400).json({
+              success: false,
+              message: `Invalid development status. Must be one of: ${validDevelopmentStatus.join(', ')}`
+            });
+          }
+          
+          // Validate approval details if provided
+          if (unit.plotDetails?.approvalDetails) {
+            const approval = unit.plotDetails.approvalDetails;
+            if (approval.dtcpApproved && !approval.dtcpNumber) {
+              return res.status(400).json({
+                success: false,
+                message: 'DTCP number is required when DTCP approved is true'
+              });
+            }
+            if (approval.layoutApproved && !approval.layoutNumber) {
+              return res.status(400).json({
+                success: false,
+                message: 'Layout number is required when layout approved is true'
+              });
+            }
+          }
+        }
+        
+        // Validate availability
+        if (unit.availability && !validAvailabilityOptions.includes(unit.availability)) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid availability for ${unit.type}. Must be one of: ${validAvailabilityOptions.join(', ')}`
+          });
+        }
+        
+        // Set default availability
+        unit.availability = unit.availability || "available";
+        
+        // Set default floors if not provided and not a plot
+        if (unit.type !== 'Plot') {
+          unit.floors = unit.floors || 1;
+        }
+        
+        // For plots, set default values if not provided
+        if (unit.type === 'Plot') {
+          unit.plotDetails = unit.plotDetails || {};
+          unit.plotDetails.shape = unit.plotDetails.shape || "rectangle";
+          unit.plotDetails.landUse = unit.plotDetails.landUse || "residential";
+          unit.plotDetails.developmentStatus = unit.plotDetails.developmentStatus || "developed";
+          unit.plotDetails.utilities = unit.plotDetails.utilities || {
+            electricity: false,
+            waterConnection: false,
+            sewageConnection: false,
+            gasConnection: false,
+            internetFiber: false
+          };
+          unit.plotDetails.approvalDetails = unit.plotDetails.approvalDetails || {
+            dtcpApproved: false,
+            layoutApproved: false,
+            subdivisionApproved: false
+          };
+        }
+      }
+    } catch (parseError) {
+      console.error('JSON parse error for unitTypes:', parseError);
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid JSON format in unitTypes field'
       });
     }
 
@@ -141,28 +327,22 @@ const createPropertyUnit = async (req, res) => {
     }
 
     // Parse nested objects with error handling
-    let parsedSpecifications = {};
     let parsedBuildingDetails = {};
     let parsedUnitFeatures = [];
-    let parsedRentalDetails = {};
-    let parsedCoordinates = {};
+    let parsedCommonSpecifications = {};
+    let parsedLocationNearby = [];
     let parsedOwnerDetails = {};
     let parsedLegalDetails = {};
-    let parsedViewingSchedule = [];
-    let parsedWebsiteAssignment = [];
-    let parsedFloorPlan = {};
+    let parsedContactPreference = ["call", "whatsapp"];
 
     try {
-      parsedSpecifications = specifications ? JSON.parse(specifications) : {};
       parsedBuildingDetails = buildingDetails ? JSON.parse(buildingDetails) : {};
       parsedUnitFeatures = unitFeatures ? JSON.parse(unitFeatures) : [];
-      parsedRentalDetails = rentalDetails ? JSON.parse(rentalDetails) : {};
-      parsedCoordinates = coordinates ? JSON.parse(coordinates) : {};
+      parsedCommonSpecifications = commonSpecifications ? JSON.parse(commonSpecifications) : {};
+      parsedLocationNearby = locationNearby ? JSON.parse(locationNearby) : [];
       parsedOwnerDetails = ownerDetails ? JSON.parse(ownerDetails) : {};
       parsedLegalDetails = legalDetails ? JSON.parse(legalDetails) : {};
-      parsedViewingSchedule = viewingSchedule ? JSON.parse(viewingSchedule) : [];
-      parsedWebsiteAssignment = websiteAssignment ? JSON.parse(websiteAssignment) : ["cleartitle"];
-      parsedFloorPlan = floorPlan ? JSON.parse(floorPlan) : {};
+      parsedContactPreference = contactPreference ? JSON.parse(contactPreference) : ["call", "whatsapp"];
     } catch (parseError) {
       console.error('JSON parse error:', parseError);
       return res.status(400).json({
@@ -171,99 +351,137 @@ const createPropertyUnit = async (req, res) => {
       });
     }
 
-    // Validate specifications based on property type
-    const requiredSpecs = {
-      'Apartment': ['bedrooms', 'bathrooms', 'carpetArea', 'builtUpArea'],
-      'Villa': ['bedrooms', 'bathrooms', 'carpetArea', 'plotArea'],
-      'Plot': ['plotArea'],
-      'Commercial Space': ['carpetArea', 'builtUpArea']
-    };
-
-    const propertyTypeRequirements = requiredSpecs[propertyType] || ['bedrooms', 'bathrooms', 'carpetArea'];
-    for (const spec of propertyTypeRequirements) {
-      if (!parsedSpecifications[spec] && parsedSpecifications[spec] !== 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Missing required specification: ${spec} for ${propertyType} property type`
-        });
+    // Validate locationNearby if provided
+    const validLocationTypes = ["transport", "education", "healthcare", "shopping", "entertainment", "banking", "religious", "park", "restaurant", "other"];
+    if (parsedLocationNearby.length > 0) {
+      for (const location of parsedLocationNearby) {
+        if (!location.name || !location.distance) {
+          return res.status(400).json({
+            success: false,
+            message: 'Each location nearby must have name and distance'
+          });
+        }
+        
+        // Validate type if provided
+        if (location.type && !validLocationTypes.includes(location.type)) {
+          location.type = "other";
+        }
       }
     }
 
-    // Parse price
-    let parsedPrice = {};
-    try {
-      parsedPrice = JSON.parse(price);
-    } catch (error) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid price format. Must be valid JSON'
-      });
+    // Validate unit features if provided
+    const validUnitFeatures = [
+      "Air Conditioning",
+      "Modular Kitchen",
+      "Wardrobes",
+      "Geyser",
+      "Exhaust Fan",
+      "Chimney",
+      "Lighting",
+      "Ceiling Fans",
+      "Smart Home Automation",
+      "Central AC",
+      "bore water",
+      "Walk-in Closet",
+      "Study Room",
+      "Pooja Room",
+      "Utility Area",
+      "Servant Room",
+      "Private Garden",
+      "Terrace",
+      "Balcony",
+      "Swimming Pool",
+      "Video Door Phone",
+      "Security Alarm",
+      "Fire Safety",
+      "CCTV",
+      "Pet Friendly",
+      "Wheelchair Access",
+      "Natural Light",
+      "View"
+    ];
+    
+    if (parsedUnitFeatures.length > 0) {
+      for (const feature of parsedUnitFeatures) {
+        if (feature.type && !validUnitFeatures.includes(feature.type)) {
+          console.warn(`Invalid unit feature: ${feature.type}`);
+        }
+      }
     }
 
-    // Validate listing type
-    const validListingTypes = ["sale", "rent", "lease", "pg"];
-    const finalListingType = listingType && validListingTypes.includes(listingType) ? listingType : "sale";
+    // Validate common specifications
+    const validFurnishing = ["unfurnished", "semi-furnished", "fully-furnished"];
+    const validPossessionStatus = ["ready-to-move", "under-construction", "resale"];
+    const validKitchenType = ["modular", "regular", "open", "closed", "none"];
+    
+    const finalCommonSpecifications = {
+      furnishing: parsedCommonSpecifications.furnishing && validFurnishing.includes(parsedCommonSpecifications.furnishing) 
+        ? parsedCommonSpecifications.furnishing 
+        : "unfurnished",
+      possessionStatus: parsedCommonSpecifications.possessionStatus && validPossessionStatus.includes(parsedCommonSpecifications.possessionStatus)
+        ? parsedCommonSpecifications.possessionStatus
+        : "ready-to-move",
+      ageOfProperty: parsedCommonSpecifications.ageOfProperty,
+      parking: {
+        covered: parsedCommonSpecifications.parking?.covered || 0,
+        open: parsedCommonSpecifications.parking?.open || 0
+      },
+      kitchenType: parsedCommonSpecifications.kitchenType && validKitchenType.includes(parsedCommonSpecifications.kitchenType)
+        ? parsedCommonSpecifications.kitchenType
+        : "regular"
+    };
+
+    // Validate contact preference
+    const validContactPreferences = ["call", "whatsapp", "email", "message"];
+    parsedContactPreference = parsedContactPreference.filter(pref => 
+      validContactPreferences.includes(pref)
+    );
+    if (parsedContactPreference.length === 0) {
+      parsedContactPreference = ["call", "whatsapp"];
+    }
+
+    // Validate building details based on property type
+    if (propertyType !== 'Plot' && parsedBuildingDetails) {
+      // For non-plot properties, ensure building details are properly structured
+      if (parsedBuildingDetails.yearBuilt && 
+          (parsedBuildingDetails.yearBuilt < 1900 || parsedBuildingDetails.yearBuilt > new Date().getFullYear())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid year built. Must be between 1900 and current year'
+        });
+      }
+    }
 
     // Create new property unit
     const newPropertyUnit = new PropertyUnit({
       title,
       description,
-      unitNumber,
       city,
       address,
-      coordinates: parsedCoordinates,
       mapUrl: mapUrl ? mapUrl.trim() : undefined,
-      price: parsedPrice,
-      maintenanceCharges: maintenanceCharges || 0,
-      securityDeposit: securityDeposit || 0,
       propertyType,
-      specifications: {
-        bedrooms: parsedSpecifications.bedrooms || 0,
-        bathrooms: parsedSpecifications.bathrooms || 0,
-        balconies: parsedSpecifications.balconies || 0,
-        floors: parsedSpecifications.floors || 1,
-        floorNumber: parsedSpecifications.floorNumber,
-        carpetArea: parsedSpecifications.carpetArea || 0,
-        builtUpArea: parsedSpecifications.builtUpArea || 0,
-        superBuiltUpArea: parsedSpecifications.superBuiltUpArea,
-        plotArea: parsedSpecifications.plotArea,
-        furnishing: parsedSpecifications.furnishing || "unfurnished",
-        possessionStatus: parsedSpecifications.possessionStatus || "ready-to-move",
-        ageOfProperty: parsedSpecifications.ageOfProperty,
-        parking: {
-          covered: parsedSpecifications.parking?.covered || 0,
-          open: parsedSpecifications.parking?.open || 0
-        },
-        kitchenType: parsedSpecifications.kitchenType || "regular"
-      },
+      unitTypes: parsedUnitTypes,
       buildingDetails: parsedBuildingDetails,
       unitFeatures: parsedUnitFeatures,
-      rentalDetails: {
-        availableForRent: parsedRentalDetails.availableForRent || (finalListingType === 'rent' || finalListingType === 'lease'),
-        leaseDuration: parsedRentalDetails.leaseDuration || { value: 11, unit: "months" },
-        rentNegotiable: parsedRentalDetails.rentNegotiable !== undefined ? parsedRentalDetails.rentNegotiable : true,
-        preferredTenants: parsedRentalDetails.preferredTenants || ["any"],
-        includedInRent: parsedRentalDetails.includedInRent || []
-      },
+      commonSpecifications: finalCommonSpecifications,
+      locationNearby: parsedLocationNearby,
       approvalStatus: finalApprovalStatus,
       isFeatured: finalIsFeatured,
       isVerified: finalIsVerified,
-      availability: availability || "available",
+      availability: finalAvailability,
       listingType: finalListingType,
-      websiteAssignment: parsedWebsiteAssignment,
       images: uploadedImages,
-      virtualTour,
-      floorPlan: parsedFloorPlan,
       ownerDetails: parsedOwnerDetails,
       legalDetails: parsedLegalDetails,
-      viewingSchedule: parsedViewingSchedule,
-      contactPreference: contactPreference ? JSON.parse(contactPreference) : ["call", "whatsapp"],
-      metaTitle,
-      metaDescription,
+      contactPreference: parsedContactPreference,
       displayOrder: displayOrder || 0,
-      parentProperty,
       rejectionReason: isAdminUser ? rejectionReason : "",
       createdBy: req.user._id,
+      // Initialize statistics with zeros
+      viewCount: 0,
+      inquiryCount: 0,
+      favoriteCount: 0,
+      likes: 0
     });
 
     // Save the property unit
@@ -296,16 +514,39 @@ const createPropertyUnit = async (req, res) => {
       console.error('Error updating user postedProperties:', userUpdateError);
     }
     
+    // Populate createdBy user details
     await newPropertyUnit.populate('createdBy', 'name username email phoneNumber');
 
     const successMessage = finalApprovalStatus === "approved" 
-      ? "Property unit added successfully and approved! It is now live on the platform."
-      : "Property unit added successfully! It will be visible after admin approval.";
+      ? `Property unit added successfully and approved! It is now live on the platform.${propertyType === 'Plot' ? ' Plot details have been saved.' : ''}`
+      : `Property unit added successfully! It will be visible after admin approval.${propertyType === 'Plot' ? ' Plot details have been saved.' : ''}`;
+
+    // Prepare response data with plot-specific information
+    const responseData = newPropertyUnit.toObject({
+      virtuals: true // Include virtual fields like priceRange and availableUnitTypes
+    });
+
+    // Add plot-specific computed fields if property is a plot
+    if (propertyType === 'Plot') {
+      const plotUnits = parsedUnitTypes.filter(unit => unit.type === 'Plot');
+      if (plotUnits.length > 0) {
+        responseData.plotSummary = {
+          totalPlots: plotUnits.length,
+          availablePlots: plotUnits.filter(unit => unit.availability === 'available').length,
+          minPrice: Math.min(...plotUnits.map(unit => unit.price.amount)),
+          maxPrice: Math.max(...plotUnits.map(unit => unit.price.amount)),
+          areaRange: {
+            min: Math.min(...plotUnits.map(unit => unit.plotDetails?.area?.sqft || unit.carpetArea)),
+            max: Math.max(...plotUnits.map(unit => unit.plotDetails?.area?.sqft || unit.carpetArea))
+          }
+        };
+      }
+    }
 
     res.status(201).json({
       success: true,
       message: successMessage,
-      propertyUnit: newPropertyUnit.toObject(),
+      propertyUnit: responseData,
     });
   } catch (error) {
     console.error('Property unit creation error:', error);
@@ -319,10 +560,11 @@ const createPropertyUnit = async (req, res) => {
       });
     }
 
-    if (error.code === 11000 && error.keyPattern && error.keyPattern.slug) {
+    // Handle duplicate key errors (e.g., slug)
+    if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: 'A property with similar title already exists'
+        message: 'A property with similar title already exists. Please use a different title.',
       });
     }
 
@@ -333,7 +575,6 @@ const createPropertyUnit = async (req, res) => {
     });
   }
 };
-
 
 const createPropertyUnitN8n = async (req, res) => {
   try {
@@ -679,16 +920,14 @@ const createPropertyUnitN8n = async (req, res) => {
   }
 };
 
-// Get all property units (Public)
 const getPropertyUnits = async (req, res) => {
   try {
     const {
       city,
       propertyType,
-      bedrooms,
-      bathrooms,
-      minArea,
-      maxArea,
+      minPrice,
+      maxPrice,
+      unitType, // For filtering by unit type (1BHK, 2BHK, etc.)
       furnishing,
       possessionStatus,
       kitchenType,
@@ -696,13 +935,28 @@ const getPropertyUnits = async (req, res) => {
       availability,
       isFeatured,
       isVerified,
-      sortBy = 'displayOrder', // Changed default to displayOrder
-      sortOrder = 'asc', // Changed default to asc for displayOrder
+      sortBy = 'displayOrder',
+      sortOrder = 'asc',
       page = 1,
       limit = 12,
       search: searchQuery,
       approvalStatus,
-      createdBy
+      createdBy,
+      // New filters for advanced search
+      bedrooms,
+      bathrooms,
+      carpetAreaMin,
+      carpetAreaMax,
+      builtUpAreaMin,
+      builtUpAreaMax,
+      parkingSpaces,
+      reraRegistered,
+      khataStatus,
+      ownershipType,
+      plotLandUse,
+      plotDevelopmentStatus,
+      nearbyAmenity, // e.g., "Metro Station", "School"
+      nearbyDistanceMax // max distance in km
     } = req.query;
 
     // Build filter
@@ -737,17 +991,102 @@ const getPropertyUnits = async (req, res) => {
       filter.listingType = listingType.trim();
     }
     
+    // Filter by unit type (if searching for specific BHK)
+    if (unitType && unitType.trim() !== '') {
+      filter['unitTypes.type'] = unitType.trim();
+    }
+    
+    // Filter by bedrooms count (extract from unit type)
+    if (bedrooms && !isNaN(bedrooms)) {
+      const bedroomPattern = new RegExp(`${bedrooms}BHK`);
+      filter['unitTypes.type'] = bedroomPattern;
+    }
+    
+    // Price range filter (checks across all unit types)
+    if (minPrice || maxPrice) {
+      filter['unitTypes.price.amount'] = {};
+      if (minPrice && !isNaN(minPrice)) {
+        filter['unitTypes.price.amount'].$gte = Number(minPrice);
+      }
+      if (maxPrice && !isNaN(maxPrice)) {
+        filter['unitTypes.price.amount'].$lte = Number(maxPrice);
+      }
+    }
+    
+    // Area filters
+    if (carpetAreaMin && !isNaN(carpetAreaMin)) {
+      filter['unitTypes.carpetArea'] = { $gte: Number(carpetAreaMin) };
+    }
+    if (carpetAreaMax && !isNaN(carpetAreaMax)) {
+      if (!filter['unitTypes.carpetArea']) filter['unitTypes.carpetArea'] = {};
+      filter['unitTypes.carpetArea'].$lte = Number(carpetAreaMax);
+    }
+    
+    if (builtUpAreaMin && !isNaN(builtUpAreaMin)) {
+      filter['unitTypes.builtUpArea'] = { $gte: Number(builtUpAreaMin) };
+    }
+    if (builtUpAreaMax && !isNaN(builtUpAreaMax)) {
+      if (!filter['unitTypes.builtUpArea']) filter['unitTypes.builtUpArea'] = {};
+      filter['unitTypes.builtUpArea'].$lte = Number(builtUpAreaMax);
+    }
+    
     // Specifications filters
     if (furnishing && furnishing.trim() !== '') {
-      filter['specifications.furnishing'] = furnishing.trim();
+      filter['commonSpecifications.furnishing'] = furnishing.trim();
     }
     
     if (possessionStatus && possessionStatus.trim() !== '') {
-      filter['specifications.possessionStatus'] = possessionStatus.trim();
+      filter['commonSpecifications.possessionStatus'] = possessionStatus.trim();
     }
     
     if (kitchenType && kitchenType.trim() !== '') {
-      filter['specifications.kitchenType'] = kitchenType.trim();
+      filter['commonSpecifications.kitchenType'] = kitchenType.trim();
+    }
+    
+    // Parking filter
+    if (parkingSpaces && !isNaN(parkingSpaces)) {
+      filter.$or = [
+        { 'commonSpecifications.parking.covered': { $gte: Number(parkingSpaces) } },
+        { 'commonSpecifications.parking.open': { $gte: Number(parkingSpaces) } }
+      ];
+    }
+    
+    // Legal filters
+    if (reraRegistered !== undefined && reraRegistered !== '') {
+      filter['legalDetails.reraRegistered'] = reraRegistered === 'true';
+    }
+    
+    if (khataStatus && khataStatus.trim() !== '') {
+      filter['legalDetails.khataStatus'] = khataStatus.trim();
+    }
+    
+    if (ownershipType && ownershipType.trim() !== '') {
+      filter['legalDetails.ownershipType'] = ownershipType.trim();
+    }
+    
+    // Plot-specific filters
+    if (plotLandUse && plotLandUse.trim() !== '') {
+      filter['unitTypes.plotDetails.landUse'] = plotLandUse.trim();
+    }
+    
+    if (plotDevelopmentStatus && plotDevelopmentStatus.trim() !== '') {
+      filter['unitTypes.plotDetails.developmentStatus'] = plotDevelopmentStatus.trim();
+    }
+    
+    // Nearby amenities filter (check if locationNearby contains the amenity)
+    if (nearbyAmenity && nearbyAmenity.trim() !== '') {
+      const amenityFilter = { 'locationNearby.name': new RegExp(nearbyAmenity.trim(), 'i') };
+      
+      if (nearbyDistanceMax && !isNaN(nearbyDistanceMax)) {
+        // For distance filtering, we'd need more complex logic
+        // This is a simplified version
+        amenityFilter['locationNearby.distance'] = { 
+          $regex: new RegExp(`^(0|[1-9]${nearbyDistanceMax})\\.?\\d*km?$`, 'i')
+        };
+      }
+      
+      filter.$and = filter.$and || [];
+      filter.$and.push(amenityFilter);
     }
     
     // Admin-only filters
@@ -760,26 +1099,6 @@ const getPropertyUnits = async (req, res) => {
       }
     }
     
-    // Numeric filters
-    if (bedrooms && !isNaN(bedrooms)) {
-      filter['specifications.bedrooms'] = Number(bedrooms);
-    }
-    
-    if (bathrooms && !isNaN(bathrooms)) {
-      filter['specifications.bathrooms'] = Number(bathrooms);
-    }
-    
-    // Area filter
-    if (minArea || maxArea) {
-      filter['specifications.carpetArea'] = {};
-      if (minArea && !isNaN(minArea)) {
-        filter['specifications.carpetArea'].$gte = Number(minArea);
-      }
-      if (maxArea && !isNaN(maxArea)) {
-        filter['specifications.carpetArea'].$lte = Number(maxArea);
-      }
-    }
-    
     // Search filter
     if (searchQuery && searchQuery.trim() !== '') {
       const searchRegex = new RegExp(searchQuery.trim(), 'i');
@@ -789,7 +1108,8 @@ const getPropertyUnits = async (req, res) => {
         { address: searchRegex },
         { city: searchRegex },
         { 'buildingDetails.name': searchRegex },
-        { mapUrl: searchRegex }
+        { 'unitTypes.type': searchRegex },
+        { 'locationNearby.name': searchRegex }
       ];
     }
     
@@ -807,33 +1127,45 @@ const getPropertyUnits = async (req, res) => {
     let sort = {};
     
     const allowedSortFields = {
-      'displayOrder': 'displayOrder', // Added this
+      'displayOrder': 'displayOrder',
       'createdAt': 'createdAt',
       'updatedAt': 'updatedAt',
       'title': 'title',
       'city': 'city',
-      'price': 'price',
       'listingType': 'listingType',
       'isFeatured': 'isFeatured',
       'isVerified': 'isVerified',
       'availability': 'availability',
-      'bedrooms': 'specifications.bedrooms',
-      'carpetArea': 'specifications.carpetArea'
+      'price': 'unitTypes.price.amount', // Special handling for price sorting
+      'carpetArea': 'unitTypes.carpetArea',
+      'builtUpArea': 'unitTypes.builtUpArea',
+      'viewCount': 'viewCount'
     };
 
-    const sortField = allowedSortFields[sortBy] || 'displayOrder'; // Changed default to displayOrder
+    const sortField = allowedSortFields[sortBy] || 'displayOrder';
     const sortDirection = sortOrder === 'asc' ? 1 : -1;
     
-    // If sorting by displayOrder, always put null values at the end
-    if (sortField === 'displayOrder') {
-      sort = { 
-        [sortField]: sortDirection,
-        'createdAt': -1 // Secondary sort for items without displayOrder
+    // If sorting by price or area, we need to handle it specially
+    if (sortBy === 'price') {
+      // Sort by minimum price across unit types
+      sort = {
+        'unitTypes.price.amount': sortDirection
+      };
+    } else if (sortBy === 'carpetArea' || sortBy === 'builtUpArea') {
+      sort = {
+        [sortField]: sortDirection
       };
     } else {
-      sort[sortField] = sortDirection;
-      // Add displayOrder as secondary sort for other fields
-      sort.displayOrder = -1;
+      // Normal sorting
+      if (sortField === 'displayOrder') {
+        sort = { 
+          [sortField]: sortDirection,
+          'createdAt': -1
+        };
+      } else {
+        sort[sortField] = sortDirection;
+        sort.displayOrder = -1;
+      }
     }
     
     // If not sorting by isFeatured, add it as a sort criteria
@@ -852,48 +1184,179 @@ const getPropertyUnits = async (req, res) => {
       .skip(skip)
       .limit(limitNum)
       .populate('createdBy', 'name email phoneNumber avatar')
-      .populate('parentProperty', 'name title images')
       .lean();
 
     // Get total count
     const total = await PropertyUnit.countDocuments(filter);
 
-    // Get available filters
+    // Transform data for frontend compatibility
+    const transformedData = propertyUnits.map(unit => {
+      // Get the first available unit type or the cheapest one
+      const primaryUnitType = unit.unitTypes && unit.unitTypes.length > 0 
+        ? unit.unitTypes.sort((a, b) => a.price.amount - b.price.amount)[0] 
+        : null;
+      
+      // Calculate total parking spaces
+      const totalParking = (unit.commonSpecifications?.parking?.covered || 0) + 
+                          (unit.commonSpecifications?.parking?.open || 0);
+      
+      // Get bedrooms count from unit type
+      const bedroomMatch = primaryUnitType?.type?.match(/\d+/);
+      const bedroomsCount = bedroomMatch ? parseInt(bedroomMatch[0]) : 0;
+      
+      // Estimate bathrooms (basic estimation)
+      const bathroomsCount = bedroomsCount > 0 ? bedroomsCount : 1;
+      
+      // Get price range from virtual field
+      const priceRange = unit.priceRange;
+      
+      // Get available unit types from virtual field
+      const availableUnitTypes = unit.availableUnitTypes;
+      
+      return {
+        ...unit,
+        // Add computed fields for frontend compatibility
+        specifications: {
+          furnishing: unit.commonSpecifications?.furnishing,
+          possessionStatus: unit.commonSpecifications?.possessionStatus,
+          kitchenType: unit.commonSpecifications?.kitchenType,
+          parkingSpaces: totalParking,
+          coveredParking: unit.commonSpecifications?.parking?.covered || 0,
+          openParking: unit.commonSpecifications?.parking?.open || 0,
+          carpetArea: primaryUnitType?.carpetArea || 0,
+          builtUpArea: primaryUnitType?.builtUpArea || 0,
+          superBuiltUpArea: primaryUnitType?.superBuiltUpArea || 0,
+          bedrooms: bedroomsCount,
+          bathrooms: bathroomsCount,
+          floors: primaryUnitType?.floors || unit.buildingDetails?.totalFloors || 1,
+          floorNumber: primaryUnitType?.floorNumber
+        },
+        // Add price object for frontend compatibility
+        price: primaryUnitType?.price || null,
+        priceRange: priceRange,
+        // Add unit type info
+        unitType: primaryUnitType?.type || null,
+        // Add availability info
+        totalUnits: primaryUnitType?.totalUnits || null,
+        availableUnits: primaryUnitType?.availableUnits || null,
+        // Add plot details if applicable
+        plotDetails: unit.propertyType === 'Plot' && primaryUnitType?.plotDetails 
+          ? primaryUnitType.plotDetails 
+          : null,
+        // Add location nearby details
+        locationNearby: unit.locationNearby || [],
+        // Add building details
+        buildingDetails: unit.buildingDetails || null,
+        // Add unit features
+        unitFeatures: unit.unitFeatures || [],
+        // Add legal details
+        legalDetails: unit.legalDetails || null,
+        // Keep original unitTypes for detailed view
+        unitTypes: unit.unitTypes,
+        // Add computed fields for statistics
+        hasMultipleUnitTypes: unit.unitTypes && unit.unitTypes.length > 1,
+        unitTypeCount: unit.unitTypes?.length || 0
+      };
+    });
+
+    // Get available filters for dropdowns
     const availableCities = await PropertyUnit.distinct('city', filter).sort();
     const availablePropertyTypes = await PropertyUnit.distinct('propertyType', filter).sort();
-    const availableBedrooms = await PropertyUnit.distinct('specifications.bedrooms', filter)
-      .then(beds => beds.filter(b => b != null).sort((a, b) => a - b));
-
-    // Also get other filter options
-    const availableFurnishingTypes = await PropertyUnit.distinct('specifications.furnishing', filter);
-    const availablePossessionStatuses = await PropertyUnit.distinct('specifications.possessionStatus', filter);
-    const availableKitchenTypes = await PropertyUnit.distinct('specifications.kitchenType', filter);
+    
+    // Get available unit types from all properties
+    const allUnitTypes = await PropertyUnit.aggregate([
+      { $match: filter },
+      { $unwind: '$unitTypes' },
+      { $group: { _id: '$unitTypes.type' } },
+      { $sort: { _id: 1 } }
+    ]);
+    const availableUnitTypes = allUnitTypes.map(item => item._id).filter(t => t);
+    
+    // Get available furnishing types
+    const availableFurnishingTypes = await PropertyUnit.distinct('commonSpecifications.furnishing', filter);
+    const availablePossessionStatuses = await PropertyUnit.distinct('commonSpecifications.possessionStatus', filter);
+    const availableKitchenTypes = await PropertyUnit.distinct('commonSpecifications.kitchenType', filter);
     const availableListingTypes = await PropertyUnit.distinct('listingType', filter);
+    
+    // Get available legal filters
+    const availableKhataStatuses = await PropertyUnit.distinct('legalDetails.khataStatus', filter);
+    const availableOwnershipTypes = await PropertyUnit.distinct('legalDetails.ownershipType', filter);
+    const availableLandUseTypes = await PropertyUnit.distinct('unitTypes.plotDetails.landUse', filter);
+    
+    // Get nearby amenities statistics
+    const nearbyAmenities = await PropertyUnit.aggregate([
+      { $match: filter },
+      { $unwind: '$locationNearby' },
+      { $group: { 
+        _id: '$locationNearby.type', 
+        names: { $addToSet: '$locationNearby.name' },
+        count: { $sum: 1 }
+      }},
+      { $sort: { count: -1 } }
+    ]);
+    
+    // Get price range statistics for the current filter
+    const priceStats = await PropertyUnit.aggregate([
+      { $match: filter },
+      { $unwind: '$unitTypes' },
+      { $group: {
+        _id: null,
+        minPrice: { $min: '$unitTypes.price.amount' },
+        maxPrice: { $max: '$unitTypes.price.amount' },
+        avgPrice: { $avg: '$unitTypes.price.amount' }
+      }}
+    ]);
 
     res.status(200).json({
       success: true,
-      count: propertyUnits.length,
+      count: transformedData.length,
       total,
       totalPages: Math.ceil(total / limitNum),
       currentPage: pageNum,
-      data: propertyUnits,
+      data: transformedData,
       filters: {
         availableCities,
         availablePropertyTypes,
-        availableBedrooms,
+        availableUnitTypes,
         availableFurnishingTypes,
         availablePossessionStatuses,
         availableKitchenTypes,
         availableListingTypes,
+        availableKhataStatuses,
+        availableOwnershipTypes,
+        availableLandUseTypes,
+        nearbyAmenities: nearbyAmenities.map(amenity => ({
+          type: amenity._id,
+          examples: amenity.names.slice(0, 5),
+          count: amenity.count
+        })),
+        priceRange: priceStats[0] ? {
+          min: priceStats[0].minPrice,
+          max: priceStats[0].maxPrice,
+          avg: Math.round(priceStats[0].avgPrice)
+        } : null,
         appliedFilters: {
           city,
           propertyType,
-          bedrooms,
-          bathrooms,
+          unitType,
           furnishing,
           possessionStatus,
           kitchenType,
-          listingType
+          listingType,
+          minPrice,
+          maxPrice,
+          bedrooms,
+          carpetAreaMin,
+          carpetAreaMax,
+          builtUpAreaMin,
+          builtUpAreaMax,
+          parkingSpaces,
+          reraRegistered,
+          khataStatus,
+          ownershipType,
+          plotLandUse,
+          plotDevelopmentStatus,
+          nearbyAmenity
         }
       }
     });
@@ -964,6 +1427,7 @@ const getFeaturedPropertyUnits = async (req, res) => {
 
 
 // Get property unit by ID (Public)
+// propertyUnitController.js - Updated getPropertyUnitById
 const getPropertyUnitById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -978,11 +1442,17 @@ const getPropertyUnitById = async (req, res) => {
 
     console.log("Searching for property unit with ID:", id);
 
-    // Find property unit
-    const propertyUnit = await PropertyUnit.findOne({
-      _id: id
-    })
-      .populate("parentProperty", "name title images")
+    // Check if user is admin to show pending/rejected properties
+    const isAdmin = req.user && (req.user.userType === 'admin' || req.user.userType === 'superadmin');
+    
+    // Build filter based on user role
+    const filter = { _id: id };
+    if (!isAdmin) {
+      filter.approvalStatus = "approved";
+    }
+
+    // Find property unit with proper population
+    const propertyUnit = await PropertyUnit.findOne(filter)
       .populate("createdBy", "name email phoneNumber avatar")
       .lean();
 
@@ -995,24 +1465,20 @@ const getPropertyUnitById = async (req, res) => {
       });
     }
 
-    // Increment view count asynchronously
-    PropertyUnit.findByIdAndUpdate(id, { 
-      $inc: { viewCount: 1 } 
-    }).exec();
+    // Increment view count asynchronously (only for non-admin views)
+    if (!isAdmin) {
+      PropertyUnit.findByIdAndUpdate(id, { 
+        $inc: { viewCount: 1 } 
+      }).exec();
+    }
 
-    // Format response
-    const response = {
+    // Transform the data to match frontend expectations
+    const transformedData = transformPropertyUnitForFrontend(propertyUnit);
+
+    res.status(200).json({
       success: true,
-      data: {
-        ...propertyUnit,
-        fullAddress: propertyUnit.unitNumber 
-          ? `${propertyUnit.unitNumber}, ${propertyUnit.address || ''}, ${propertyUnit.city || ''}`.replace(/\s*,\s*,/g, ',').replace(/,\s*$/, '')
-          : `${propertyUnit.address || ''}, ${propertyUnit.city || ''}`.replace(/\s*,\s*,/g, ',').replace(/,\s*$/, '')
-      }
-    };
-
-    console.log("Sending response for:", response.data.title);
-    res.status(200).json(response);
+      data: transformedData
+    });
     
   } catch (error) {
     console.error("Get property unit by ID error:", error);
@@ -1033,6 +1499,269 @@ const getPropertyUnitById = async (req, res) => {
   }
 };
 
+// Helper function to transform data for frontend
+const transformPropertyUnitForFrontend = (unit) => {
+  // Get all unit types
+  const unitTypes = unit.unitTypes || [];
+  
+  // Get the primary unit type (first available or cheapest)
+  let primaryUnitType = null;
+  if (unitTypes.length > 0) {
+    // Sort by price to get the cheapest as primary
+    const sortedUnits = [...unitTypes].sort((a, b) => a.price.amount - b.price.amount);
+    primaryUnitType = sortedUnits[0];
+  }
+  
+  // Calculate price range from all unit types
+  const priceRange = unit.priceRange || (unitTypes.length > 0 ? {
+    min: Math.min(...unitTypes.map(u => u.price.amount)),
+    max: Math.max(...unitTypes.map(u => u.price.amount))
+  } : null);
+  
+  // Calculate price from primary unit type
+  let price = null;
+  if (primaryUnitType && primaryUnitType.price) {
+    price = {
+      amount: primaryUnitType.price.amount,
+      currency: primaryUnitType.price.currency || 'INR',
+      perUnit: primaryUnitType.price.perUnit || 'total'
+    };
+  }
+
+  // Build specifications from unitTypes and commonSpecifications
+  const specifications = {
+    // From unit type
+    bedrooms: primaryUnitType?.type ? parseInt(primaryUnitType.type.match(/\d+/)?.[0] || 0) : 0,
+    unitType: primaryUnitType?.type || null,
+    carpetArea: primaryUnitType?.carpetArea || 0,
+    builtUpArea: primaryUnitType?.builtUpArea || 0,
+    superBuiltUpArea: primaryUnitType?.superBuiltUpArea || 0,
+    floorNumber: primaryUnitType?.floorNumber || 0,
+    floors: primaryUnitType?.floors || 1,
+    
+    // From common specifications
+    furnishing: unit.commonSpecifications?.furnishing || "unfurnished",
+    possessionStatus: unit.commonSpecifications?.possessionStatus || "ready-to-move",
+    ageOfProperty: unit.commonSpecifications?.ageOfProperty,
+    parking: unit.commonSpecifications?.parking || { covered: 0, open: 0 },
+    kitchenType: unit.commonSpecifications?.kitchenType || "regular"
+  };
+
+  // Get building details
+  const buildingDetails = unit.buildingDetails || {};
+
+  // Get rental details if applicable
+  const rentalDetails = unit.listingType === 'rent' || unit.listingType === 'lease' ? {
+    monthlyRent: price?.amount || null,
+    securityDeposit: unit.securityDeposit || null,
+    maintenanceCharges: unit.maintenanceCharges || null,
+    leaseTerms: unit.leaseTerms || null
+  } : null;
+
+  // Get legal details
+  const legalDetails = unit.legalDetails || {};
+
+  // Get viewing schedule
+  const viewingSchedule = unit.viewingSchedule || [];
+
+  // Get contact preference
+  const contactPreference = unit.contactPreference || ["call", "whatsapp"];
+
+  // Get owner details
+  const ownerDetails = unit.ownerDetails || {};
+
+  // Get nearby amenities
+  const locationNearby = unit.locationNearby || [];
+
+  // Get unit features
+  const unitFeatures = unit.unitFeatures || [];
+
+  // Calculate available unit types count
+  const availableUnitTypes = unit.availableUnitTypes || unitTypes.filter(ut => 
+    ut.availability === 'available' && 
+    (ut.availableUnits === undefined || ut.availableUnits > 0)
+  );
+
+  // Get plot area if property is plot
+  let plotArea = null;
+  if (unit.propertyType === 'Plot') {
+    const plotUnit = unitTypes.find(ut => ut.type === 'Plot');
+    if (plotUnit?.plotDetails?.area) {
+      plotArea = {
+        sqft: plotUnit.plotDetails.area.sqft,
+        sqYards: plotUnit.plotDetails.area.sqYards,
+        grounds: plotUnit.plotDetails.area.grounds,
+        acres: plotUnit.plotDetails.area.acres,
+        cents: plotUnit.plotDetails.area.cents,
+        dimensions: plotUnit.plotDetails.dimensions,
+        shape: plotUnit.plotDetails.shape,
+        facing: plotUnit.plotDetails.facing,
+        isCornerPlot: plotUnit.plotDetails.isCornerPlot,
+        cornerRoads: plotUnit.plotDetails.cornerRoads,
+        roadWidth: plotUnit.plotDetails.roadWidth,
+        roadType: plotUnit.plotDetails.roadType,
+        landUse: plotUnit.plotDetails.landUse,
+        developmentStatus: plotUnit.plotDetails.developmentStatus,
+        amenities: plotUnit.plotDetails.amenities,
+        utilities: plotUnit.plotDetails.utilities,
+        approvalDetails: plotUnit.plotDetails.approvalDetails
+      };
+    }
+  }
+
+  // Format full address
+  const fullAddress = unit.unitNumber 
+    ? `${unit.unitNumber}, ${unit.address || ''}, ${unit.city || ''}`.replace(/\s*,\s*,/g, ',').replace(/,\s*$/, '')
+    : `${unit.address || ''}, ${unit.city || ''}`.replace(/\s*,\s*,/g, ',').replace(/,\s*$/, '');
+
+  return {
+    // Basic Information
+    _id: unit._id,
+    title: unit.title,
+    description: unit.description,
+    images: unit.images || [],
+    city: unit.city,
+    address: unit.address,
+    fullAddress: fullAddress,
+    unitNumber: unit.unitNumber,
+    mapUrl: unit.mapUrl,
+    
+    // Location & Nearby
+    locationNearby: locationNearby,
+    
+    // Property Type
+    propertyType: unit.propertyType,
+    
+    // Unit Types (All configurations)
+    unitTypes: unitTypes.map(ut => ({
+      ...ut,
+      // Add formatted price for frontend convenience
+      formattedPrice: formatPriceForFrontend(ut.price)
+    })),
+    
+    // Price Information
+    price: price,
+    priceRange: priceRange,
+    
+    // Availability & Status
+    availability: unit.availability,
+    isFeatured: unit.isFeatured,
+    isVerified: unit.isVerified,
+    approvalStatus: unit.approvalStatus,
+    listingType: unit.listingType,
+    
+    // Specifications
+    specifications: specifications,
+    commonSpecifications: unit.commonSpecifications || {},
+    
+    // Building Details
+    buildingDetails: buildingDetails,
+    
+    // Unit Features
+    unitFeatures: unitFeatures,
+    
+    // Rental Details
+    rentalDetails: rentalDetails,
+    
+    // Legal Details
+    legalDetails: legalDetails,
+    
+    // Owner Information
+    ownerDetails: ownerDetails,
+    
+    // Creator Information
+    createdBy: unit.createdBy,
+    
+    // Plot Specific Details
+    plotArea: plotArea,
+    
+    // Viewing & Contact
+    viewingSchedule: viewingSchedule,
+    contactPreference: contactPreference,
+    
+    // Statistics
+    viewCount: unit.viewCount,
+    inquiryCount: unit.inquiryCount,
+    favoriteCount: unit.favoriteCount,
+    likes: unit.likes,
+    
+    // SEO
+    slug: unit.slug,
+    
+    // Timestamps
+    createdAt: unit.createdAt,
+    updatedAt: unit.updatedAt,
+    
+    // Computed Fields
+    hasMultipleUnitTypes: unitTypes.length > 1,
+    totalUnitTypes: unitTypes.length,
+    availableUnitTypesCount: availableUnitTypes.length,
+    availableUnitTypes: availableUnitTypes,
+    
+    // Additional Fields
+    virtualTour: unit.virtualTour,
+    floorPlan: unit.floorPlan,
+    displayOrder: unit.displayOrder
+  };
+};
+
+// Helper function to format price for frontend
+const formatPriceForFrontend = (price) => {
+  if (!price || !price.amount) return null;
+  
+  const amount = price.amount;
+  const currency = price.currency || '₹';
+  const perUnit = price.perUnit;
+  
+  const numberToWords = (num) => {
+    const crore = 10000000;
+    const lakh = 100000;
+    const thousand = 1000;
+    
+    const formatDecimal = (value) => {
+      const fixed = value.toFixed(2);
+      return fixed.replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+    };
+    
+    if (num >= crore) {
+      const crores = num / crore;
+      if (num % crore === 0) {
+        return `${Math.floor(crores).toLocaleString('en-IN')} Cr`;
+      }
+      return `${formatDecimal(crores)} Cr`;
+    }
+    
+    if (num >= lakh) {
+      const lakhs = num / lakh;
+      if (num % lakh === 0) {
+        return `${Math.floor(lakhs).toLocaleString('en-IN')} L`;
+      }
+      return `${formatDecimal(lakhs)} L`;
+    }
+    
+    if (num >= thousand) {
+      const thousands = num / thousand;
+      if (num % thousand === 0) {
+        return `${Math.floor(thousands).toLocaleString('en-IN')} K`;
+      }
+      return `${formatDecimal(thousands)} K`;
+    }
+    
+    return `${Math.floor(num).toLocaleString('en-IN')}`;
+  };
+  
+  let formattedPrice = `${currency} ${numberToWords(amount)}`;
+  
+  if (perUnit && perUnit !== 'total') {
+    if (perUnit === 'sqft') formattedPrice += '/sq.ft';
+    else if (perUnit === 'sqm') formattedPrice += '/sq.m';
+    else if (perUnit === 'month') formattedPrice += '/month';
+    else if (perUnit === 'perSqYard') formattedPrice += '/sq.yd';
+    else if (perUnit === 'perGround') formattedPrice += '/ground';
+  }
+  
+  return formattedPrice;
+};
 // Update property unit (Public)
 const updatePropertyUnit = async (req, res) => {
   try {
@@ -1047,11 +1776,10 @@ const updatePropertyUnit = async (req, res) => {
       });
     }
 
-    // Check permissions - Updated to match your User model
+    // Check permissions
     const isOwner = req.user._id.equals(propertyUnit.createdBy);
     const isAdmin = req.user.isAdmin === true;
     
-    // Allow if user is either owner OR admin
     if (!isOwner && !isAdmin) {
       return res.status(403).json({
         success: false,
@@ -1059,161 +1787,202 @@ const updatePropertyUnit = async (req, res) => {
       });
     }
 
-    // Initialize update data
     let updateData = {};
     
-    // Extract all fields from form data
-    const fields = [
-      // Basic Information
-      'title', 'description', 'unitNumber',
-      
-      // Location
-      'city', 'address', 'area',
-      
-      // Price
-      'maintenanceCharges', 'securityDeposit',
-      
-      // Unit Category
-      'propertyType', 'listingType',
-      
-      // Status
-      'availability', 'isFeatured', 'isVerified', 'approvalStatus', 'rejectionReason',
-      
-      // Additional
-      'mapUrl', 'virtualTour', 'metaTitle', 'metaDescription', 'displayOrder',
-      
-      // Owner Details
-      'ownerName', 'ownerPhoneNumber', 'ownerEmail', 'ownerReasonForSelling',
-      
-      // Legal
-      'reraRegistered', 'reraNumber', 'khataCertificate', 'encumbranceCertificate',
-      'occupancyCertificate', 'ownershipType',
-      
-      // Contact
-      'contactPreference',
-      
-      // Website
-      'websiteAssignment'
-    ];
-
-    // Process text fields
-    fields.forEach(field => {
-      if (req.body[field] !== undefined) {
-        updateData[field] = req.body[field];
+    // Parse JSON data from form
+    let parsedData;
+    if (req.body.data) {
+      try {
+        parsedData = JSON.parse(req.body.data);
+      } catch (e) {
+        console.error('Error parsing form data:', e);
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid form data format'
+        });
       }
-    });
+    } else {
+      // If no data field, try to use req.body directly
+      parsedData = req.body;
+    }
 
-    // Parse JSON fields
-    const parseJSONField = (fieldName) => {
-      if (req.body[fieldName]) {
-        try {
-          return JSON.parse(req.body[fieldName]);
-        } catch (e) {
-          console.error(`Error parsing ${fieldName}:`, e);
-          return req.body[fieldName];
+    // If we have parsed data from the form
+    if (parsedData) {
+      // Handle basic fields
+      const basicFields = [
+        'title', 'description', 'city', 'address', 'mapUrl', 'locationNearby',
+        'propertyType', 'listingType', 'availability', 'isFeatured', 'isVerified',
+        'approvalStatus', 'rejectionReason', 'contactPreference', 'viewingSchedule',
+        'displayOrder', 'unitFeatures'
+      ];
+
+      basicFields.forEach(field => {
+        if (parsedData[field] !== undefined) {
+          updateData[field] = parsedData[field];
         }
+      });
+
+      // Handle buildingDetails
+      if (parsedData.buildingDetails) {
+        updateData.buildingDetails = {
+          name: parsedData.buildingDetails.name || '',
+          totalFloors: parsedData.buildingDetails.totalFloors ? Number(parsedData.buildingDetails.totalFloors) : 0,
+          totalUnits: parsedData.buildingDetails.totalUnits ? Number(parsedData.buildingDetails.totalUnits) : 0,
+          yearBuilt: parsedData.buildingDetails.yearBuilt ? Number(parsedData.buildingDetails.yearBuilt) : 0,
+          amenities: parsedData.buildingDetails.amenities || []
+        };
       }
-      return undefined;
-    };
 
-    // Handle nested objects
-    const priceData = parseJSONField('price');
-    if (priceData) {
-      updateData.price = priceData;
-    }
+      // Handle commonSpecifications
+      if (parsedData.commonSpecifications) {
+        updateData.commonSpecifications = {
+          furnishing: parsedData.commonSpecifications.furnishing || 'unfurnished',
+          possessionStatus: parsedData.commonSpecifications.possessionStatus || 'ready-to-move',
+          ageOfProperty: parsedData.commonSpecifications.ageOfProperty ? Number(parsedData.commonSpecifications.ageOfProperty) : 0,
+          parking: {
+            covered: parsedData.commonSpecifications.parking?.covered ? Number(parsedData.commonSpecifications.parking.covered) : 0,
+            open: parsedData.commonSpecifications.parking?.open ? Number(parsedData.commonSpecifications.parking.open) : 0
+          },
+          kitchenType: parsedData.commonSpecifications.kitchenType || 'regular'
+        };
+      }
 
-    const specificationsData = parseJSONField('specifications');
-    if (specificationsData) {
-      updateData.specifications = specificationsData;
-    }
+      // Handle ownerDetails
+      if (parsedData.ownerDetails) {
+        updateData.ownerDetails = {
+          name: parsedData.ownerDetails.name || '',
+          phoneNumber: parsedData.ownerDetails.phoneNumber || '',
+          email: parsedData.ownerDetails.email || '',
+          reasonForSelling: parsedData.ownerDetails.reasonForSelling || ''
+        };
+      }
 
-    const buildingDetailsData = parseJSONField('buildingDetails');
-    if (buildingDetailsData) {
-      updateData.buildingDetails = buildingDetailsData;
-    }
+      // Handle legalDetails
+      if (parsedData.legalDetails) {
+        updateData.legalDetails = {
+          reraRegistered: parsedData.legalDetails.reraRegistered || false,
+          reraNumber: parsedData.legalDetails.reraNumber || '',
+          reraWebsiteLink: parsedData.legalDetails.reraWebsiteLink || '',
+          sanctioningAuthority: parsedData.legalDetails.sanctioningAuthority || '',
+          sanctionNumber: parsedData.legalDetails.sanctionNumber || '',
+          sanctionDate: parsedData.legalDetails.sanctionDate || null,
+          occupancyCertificate: parsedData.legalDetails.occupancyCertificate || false,
+          occupancyCertificateNumber: parsedData.legalDetails.occupancyCertificateNumber || '',
+          occupancyCertificateDate: parsedData.legalDetails.occupancyCertificateDate || null,
+          commencementCertificate: parsedData.legalDetails.commencementCertificate || false,
+          commencementCertificateNumber: parsedData.legalDetails.commencementCertificateNumber || '',
+          commencementCertificateDate: parsedData.legalDetails.commencementCertificateDate || null,
+          khataStatus: parsedData.legalDetails.khataStatus || 'Not Applicable',
+          clearTitle: parsedData.legalDetails.clearTitle || false,
+          motherDeedAvailable: parsedData.legalDetails.motherDeedAvailable || false,
+          conversionCertificate: parsedData.legalDetails.conversionCertificate || false,
+          conversionType: parsedData.legalDetails.conversionType || '',
+          encumbranceCertificate: parsedData.legalDetails.encumbranceCertificate || false,
+          encumbranceYears: parsedData.legalDetails.encumbranceYears ? Number(parsedData.legalDetails.encumbranceYears) : 0,
+          ownershipType: parsedData.legalDetails.ownershipType || 'freehold',
+          bankApprovals: parsedData.legalDetails.bankApprovals || [],
+          legalStatusSummary: parsedData.legalDetails.legalStatusSummary || '',
+          legalVerified: parsedData.legalDetails.legalVerified || false,
+          legalVerificationDate: parsedData.legalDetails.legalVerificationDate || null,
+          legalVerifier: parsedData.legalDetails.legalVerifier || ''
+        };
+      }
 
-    const unitFeaturesData = parseJSONField('unitFeatures');
-    if (unitFeaturesData) {
-      updateData.unitFeatures = unitFeaturesData;
-    }
+      // Handle unit types including plot details
+      if (parsedData.unitTypes && Array.isArray(parsedData.unitTypes)) {
+        updateData.unitTypes = parsedData.unitTypes.map(unit => {
+          const baseUnit = {
+            type: unit.type,
+            price: {
+              amount: unit.price?.amount ? Number(unit.price.amount) : 0,
+              currency: unit.price?.currency || 'INR',
+              perUnit: unit.price?.perUnit || 'total'
+            },
+            carpetArea: unit.carpetArea ? Number(unit.carpetArea) : 0,
+            builtUpArea: unit.builtUpArea ? Number(unit.builtUpArea) : 0,
+            superBuiltUpArea: unit.superBuiltUpArea ? Number(unit.superBuiltUpArea) : 0,
+            availability: unit.availability || 'available',
+            totalUnits: unit.totalUnits ? Number(unit.totalUnits) : 0,
+            availableUnits: unit.availableUnits ? Number(unit.availableUnits) : 0
+          };
 
-    const rentalDetailsData = parseJSONField('rentalDetails');
-    if (rentalDetailsData) {
-      updateData.rentalDetails = rentalDetailsData;
-    }
+          // Add plot details if this is a plot type
+          if (unit.type === 'Plot') {
+            baseUnit.plotDetails = {
+              dimensions: {
+                length: unit.plotDetails?.dimensions?.length ? Number(unit.plotDetails.dimensions.length) : 0,
+                breadth: unit.plotDetails?.dimensions?.breadth ? Number(unit.plotDetails.dimensions.breadth) : 0,
+                frontage: unit.plotDetails?.dimensions?.frontage ? Number(unit.plotDetails.dimensions.frontage) : 0
+              },
+              area: {
+                sqft: unit.plotDetails?.area?.sqft ? Number(unit.plotDetails.area.sqft) : (unit.carpetArea ? Number(unit.carpetArea) : 0),
+                sqYards: unit.plotDetails?.area?.sqYards ? Number(unit.plotDetails.area.sqYards) : 0,
+                grounds: unit.plotDetails?.area?.grounds ? Number(unit.plotDetails.area.grounds) : 0,
+                acres: unit.plotDetails?.area?.acres ? Number(unit.plotDetails.area.acres) : 0,
+                cents: unit.plotDetails?.area?.cents ? Number(unit.plotDetails.area.cents) : 0
+              },
+              shape: unit.plotDetails?.shape || 'rectangle',
+              facing: unit.plotDetails?.facing || '',
+              isCornerPlot: unit.plotDetails?.isCornerPlot || false,
+              cornerRoads: unit.plotDetails?.cornerRoads || [],
+              roadWidth: unit.plotDetails?.roadWidth ? Number(unit.plotDetails.roadWidth) : 0,
+              roadType: unit.plotDetails?.roadType || 'secondary',
+              boundaryWalls: unit.plotDetails?.boundaryWalls || false,
+              fencing: unit.plotDetails?.fencing || false,
+              gate: unit.plotDetails?.gate || false,
+              elevationAvailable: unit.plotDetails?.elevationAvailable || false,
+              soilType: unit.plotDetails?.soilType || '',
+              landUse: unit.plotDetails?.landUse || 'residential',
+              developmentStatus: unit.plotDetails?.developmentStatus || 'developed',
+              amenities: unit.plotDetails?.amenities || [],
+              utilities: {
+                electricity: unit.plotDetails?.utilities?.electricity || false,
+                waterConnection: unit.plotDetails?.utilities?.waterConnection || false,
+                sewageConnection: unit.plotDetails?.utilities?.sewageConnection || false,
+                gasConnection: unit.plotDetails?.utilities?.gasConnection || false,
+                internetFiber: unit.plotDetails?.utilities?.internetFiber || false
+              },
+              approvalDetails: {
+                dtcpApproved: unit.plotDetails?.approvalDetails?.dtcpApproved || false,
+                dtcpNumber: unit.plotDetails?.approvalDetails?.dtcpNumber || '',
+                layoutApproved: unit.plotDetails?.approvalDetails?.layoutApproved || false,
+                layoutNumber: unit.plotDetails?.approvalDetails?.layoutNumber || '',
+                surveyNumber: unit.plotDetails?.approvalDetails?.surveyNumber || '',
+                pattaNumber: unit.plotDetails?.approvalDetails?.pattaNumber || '',
+                subdivisionApproved: unit.plotDetails?.approvalDetails?.subdivisionApproved || false
+              }
+            };
+          }
 
-    const coordinatesData = parseJSONField('coordinates');
-    if (coordinatesData) {
-      updateData.coordinates = coordinatesData;
-    }
+          return baseUnit;
+        });
+      }
 
-    const legalDetailsData = parseJSONField('legalDetails');
-    if (legalDetailsData) {
-      updateData.legalDetails = legalDetailsData;
-    }
+      // Handle viewing schedule
+      if (parsedData.viewingSchedule && Array.isArray(parsedData.viewingSchedule)) {
+        updateData.viewingSchedule = parsedData.viewingSchedule.map(slot => ({
+          date: slot.date,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          slotsAvailable: slot.slotsAvailable ? Number(slot.slotsAvailable) : 1
+        }));
+      }
 
-    const viewingScheduleData = parseJSONField('viewingSchedule');
-    if (viewingScheduleData) {
-      updateData.viewingSchedule = viewingScheduleData;
-    }
-
-    const floorPlanData = parseJSONField('floorPlan');
-    if (floorPlanData) {
-      updateData.floorPlan = floorPlanData;
-    }
-
-    // Handle owner details as object if separate fields provided
-    if (req.body.ownerName || req.body.ownerPhoneNumber || req.body.ownerEmail) {
-      updateData.ownerDetails = {
-        name: req.body.ownerName || propertyUnit.ownerDetails?.name,
-        phoneNumber: req.body.ownerPhoneNumber || propertyUnit.ownerDetails?.phoneNumber,
-        email: req.body.ownerEmail || propertyUnit.ownerDetails?.email,
-        reasonForSelling: req.body.ownerReasonForSelling || propertyUnit.ownerDetails?.reasonForSelling
-      };
-    }
-
-    // Handle legal details as object if separate fields provided
-    if (req.body.reraRegistered !== undefined || req.body.reraNumber) {
-      updateData.legalDetails = {
-        ...propertyUnit.legalDetails,
-        reraRegistered: req.body.reraRegistered !== undefined ? req.body.reraRegistered : propertyUnit.legalDetails?.reraRegistered,
-        reraNumber: req.body.reraNumber || propertyUnit.legalDetails?.reraNumber,
-        khataCertificate: req.body.khataCertificate !== undefined ? req.body.khataCertificate : propertyUnit.legalDetails?.khataCertificate,
-        encumbranceCertificate: req.body.encumbranceCertificate !== undefined ? req.body.encumbranceCertificate : propertyUnit.legalDetails?.encumbranceCertificate,
-        occupancyCertificate: req.body.occupancyCertificate !== undefined ? req.body.occupancyCertificate : propertyUnit.legalDetails?.occupancyCertificate,
-        ownershipType: req.body.ownershipType || propertyUnit.legalDetails?.ownershipType
-      };
-    }
-
-    // Handle website assignment
-    if (req.body.websiteAssignment) {
-      if (typeof req.body.websiteAssignment === 'string') {
-        updateData.websiteAssignment = req.body.websiteAssignment.split(',');
-      } else if (Array.isArray(req.body.websiteAssignment)) {
-        updateData.websiteAssignment = req.body.websiteAssignment;
+      // Handle contact preference
+      if (parsedData.contactPreference && Array.isArray(parsedData.contactPreference)) {
+        updateData.contactPreference = parsedData.contactPreference;
       }
     }
 
-    // Handle contact preference
-    if (req.body.contactPreference) {
-      if (typeof req.body.contactPreference === 'string') {
-        updateData.contactPreference = req.body.contactPreference.split(',');
-      } else if (Array.isArray(req.body.contactPreference)) {
-        updateData.contactPreference = req.body.contactPreference;
-      }
-    }
-
-    // Admin-only fields - only restrict if user is NOT admin
-    const adminFields = ['approvalStatus', 'isFeatured', 'isVerified', 'rejectionReason'];
+    // Admin-only fields - only allow admin to modify these
     if (!isAdmin) {
-      for (const field of adminFields) {
-        if (updateData[field] !== undefined) {
-          delete updateData[field];
-        }
-      }
+      const adminOnlyFields = ['approvalStatus', 'isFeatured', 'isVerified', 'rejectionReason'];
+      adminOnlyFields.forEach(field => {
+        delete updateData[field];
+      });
     }
 
-    // If admin is rejecting, require rejection reason
+    // Validate rejection reason
     if (isAdmin && updateData.approvalStatus === 'rejected' && !updateData.rejectionReason) {
       return res.status(400).json({
         success: false,
@@ -1221,209 +1990,45 @@ const updatePropertyUnit = async (req, res) => {
       });
     }
 
-    // Handle image uploads and deletions
-    if (req.files && req.files.length > 0 || req.body.existingImages !== undefined) {
+    // Handle image uploads
+    if (req.files && req.files.length > 0) {
+      const cloudinary = require('cloudinary').v2;
       const newImages = [];
       
-      // Upload new images
-      for (let file of req.files || []) {
+      for (let file of req.files) {
         try {
           const result = await cloudinary.uploader.upload(file.path, {
             folder: "property-units",
           });
           
-          // Check if this is a floor plan
-          if (file.fieldname === 'floorPlanImage') {
-            // Delete old floor plan from Cloudinary if exists
-            if (propertyUnit.floorPlan?.public_id) {
-              try {
-                await cloudinary.uploader.destroy(propertyUnit.floorPlan.public_id);
-              } catch (cloudinaryError) {
-                console.error('Error deleting old floor plan from Cloudinary:', cloudinaryError);
-              }
-            }
-            
-            updateData.floorPlan = {
-              image: result.secure_url,
-              public_id: result.public_id,
-              description: req.body.floorPlanDescription || ""
-            };
-          } else {
-            newImages.push({
-              url: result.secure_url,
-              public_id: result.public_id,
-              caption: req.body.imageCaptions ? 
-                (Array.isArray(req.body.imageCaptions) ? req.body.imageCaptions[newImages.length] : req.body.imageCaptions) 
-                : ""
-            });
-          }
+          newImages.push({
+            url: result.secure_url,
+            public_id: result.public_id,
+            caption: ""
+          });
         } catch (uploadError) {
           console.error('Cloudinary upload error:', uploadError);
         }
       }
       
-      // Handle existing images - FIXED LOGIC
-      const existingImages = req.body.existingImages;
-      
-      if (existingImages === '[]' || existingImages === '' || existingImages === 'none') {
-        // If existingImages is explicitly empty, remove all existing images
-        // First, delete from Cloudinary
-        for (const img of propertyUnit.images) {
-          if (img.public_id) {
-            try {
-              await cloudinary.uploader.destroy(img.public_id);
-            } catch (cloudinaryError) {
-              console.error('Error deleting image from Cloudinary:', cloudinaryError);
-            }
-          }
-        }
-        updateData.images = [...newImages];
-      } else if (existingImages) {
-        let existingImagesArray;
-        try {
-          existingImagesArray = JSON.parse(existingImages);
-        } catch (e) {
-          // If not JSON, try comma-separated
-          existingImagesArray = typeof existingImages === 'string' 
-            ? existingImages.split(',').filter(img => img.trim() !== '')
-            : existingImages;
-        }
-        
-        // Filter out deleted images - only keep ones in existingImagesArray
-        const filteredImages = propertyUnit.images.filter(img => 
-          existingImagesArray.includes(img.url) || existingImagesArray.includes(img._id?.toString())
-        );
-        
-        // Delete removed images from Cloudinary
-        const imagesToDelete = propertyUnit.images.filter(img => 
-          !existingImagesArray.includes(img.url) && !existingImagesArray.includes(img._id?.toString())
-        );
-        
-        for (const img of imagesToDelete) {
-          if (img.public_id) {
-            try {
-              await cloudinary.uploader.destroy(img.public_id);
-            } catch (cloudinaryError) {
-              console.error('Error deleting image from Cloudinary:', cloudinaryError);
-            }
-          }
-        }
-        
-        // Add new images
-        updateData.images = [...filteredImages, ...newImages];
-      } else {
-        // No existingImages in request - keep all existing images and add new ones
-        updateData.images = [...propertyUnit.images, ...newImages];
-      }
-    } else if (req.body.existingImages !== undefined) {
-      // Case: No new files but existingImages was provided (for deletion only)
-      const existingImages = req.body.existingImages;
-      
-      if (existingImages === '[]' || existingImages === '' || existingImages === 'none') {
-        // Remove all images from Cloudinary
-        for (const img of propertyUnit.images) {
-          if (img.public_id) {
-            try {
-              await cloudinary.uploader.destroy(img.public_id);
-            } catch (cloudinaryError) {
-              console.error('Error deleting image from Cloudinary:', cloudinaryError);
-            }
-          }
-        }
-        updateData.images = [];
-      } else if (existingImages) {
-        let existingImagesArray;
-        try {
-          existingImagesArray = JSON.parse(existingImages);
-        } catch (e) {
-          existingImagesArray = typeof existingImages === 'string' 
-            ? existingImages.split(',').filter(img => img.trim() !== '')
-            : existingImages;
-        }
-        
-        // Filter to keep only specified images
-        const filteredImages = propertyUnit.images.filter(img => 
-          existingImagesArray.includes(img.url) || existingImagesArray.includes(img._id?.toString())
-        );
-        
-        // Delete removed images from Cloudinary
-        const imagesToDelete = propertyUnit.images.filter(img => 
-          !existingImagesArray.includes(img.url) && !existingImagesArray.includes(img._id?.toString())
-        );
-        
-        for (const img of imagesToDelete) {
-          if (img.public_id) {
-            try {
-              await cloudinary.uploader.destroy(img.public_id);
-            } catch (cloudinaryError) {
-              console.error('Error deleting image from Cloudinary:', cloudinaryError);
-            }
-          }
-        }
-        
-        updateData.images = filteredImages;
-      }
+      // Merge existing images with new ones
+      const existingImages = propertyUnit.images || [];
+      updateData.images = [...existingImages, ...newImages];
     }
 
-    // Handle floor plan removal
-    if (req.body.removeFloorPlan === 'true' || req.body.removeFloorPlan === true) {
-      // Delete old floor plan from Cloudinary if exists
-      if (propertyUnit.floorPlan?.public_id) {
-        try {
-          await cloudinary.uploader.destroy(propertyUnit.floorPlan.public_id);
-        } catch (cloudinaryError) {
-          console.error('Error deleting floor plan from Cloudinary:', cloudinaryError);
-        }
+    // Remove undefined fields to avoid overwriting with empty values
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === undefined) {
+        delete updateData[key];
       }
-      updateData.floorPlan = null;
-    } else if (req.body.floorPlanDescription && !updateData.floorPlan) {
-      // Update floor plan description only
-      updateData.floorPlan = {
-        ...propertyUnit.floorPlan,
-        description: req.body.floorPlanDescription
-      };
-    }
-
-    // Handle individual image deletion (if sent as separate field)
-    if (req.body.deletedImages) {
-      let deletedImagesArray;
-      try {
-        deletedImagesArray = JSON.parse(req.body.deletedImages);
-      } catch (e) {
-        deletedImagesArray = typeof req.body.deletedImages === 'string' 
-          ? req.body.deletedImages.split(',').filter(img => img.trim() !== '')
-          : req.body.deletedImages;
-      }
-      
-      // Filter out deleted images
-      const currentImages = updateData.images || propertyUnit.images;
-      updateData.images = currentImages.filter(img => 
-        !deletedImagesArray.includes(img.url) && !deletedImagesArray.includes(img.public_id)
-      );
-      
-      // Delete from Cloudinary
-      for (const imageId of deletedImagesArray) {
-        try {
-          await cloudinary.uploader.destroy(imageId);
-        } catch (cloudinaryError) {
-          console.error('Error deleting image from Cloudinary:', cloudinaryError);
-        }
-      }
-    }
+    });
 
     // Update the property unit
     const updatedPropertyUnit = await PropertyUnit.findByIdAndUpdate(
       id,
       updateData,
       { new: true, runValidators: true }
-    )
-    .populate('createdBy', 'name email phoneNumber')
-    .populate('parentProperty', 'title');
-
-    // If approval status changed to approved, log it
-    if (updateData.approvalStatus === 'approved' && propertyUnit.approvalStatus !== 'approved') {
-      console.log(`Property unit ${id} approved by admin ${req.user._id}`);
-    }
+    ).populate('createdBy', 'name email phoneNumber');
 
     res.status(200).json({
       success: true,
@@ -1434,6 +2039,7 @@ const updatePropertyUnit = async (req, res) => {
   } catch (error) {
     console.error('Update property unit error:', error);
     
+    // Handle validation errors
     if (error.name === 'ValidationError') {
       const errors = Object.values(error.errors).map(err => err.message);
       return res.status(400).json({
@@ -1443,10 +2049,12 @@ const updatePropertyUnit = async (req, res) => {
       });
     }
 
+    // Handle duplicate key error
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: 'Duplicate field value entered'
+        message: 'Duplicate field value entered',
+        error: error.keyPattern
       });
     }
 
@@ -1456,7 +2064,7 @@ const updatePropertyUnit = async (req, res) => {
       error: error.message
     });
   }
-};
+};  
 // Delete property unit (Public)
 const deletePropertyUnit = async (req, res) => {
   try {
