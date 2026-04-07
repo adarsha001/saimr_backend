@@ -529,86 +529,115 @@ const googleSignIn = async (req, res) => {
 };
 
 
-const verifyTruecaller = async (req, res) => {
+const pendingHandshakes = new Map();
+
+// Handle handshake acknowledgment
+const handleHandshake = async (req, res) => {
   try {
-    const { verificationToken, phoneNumber, firstName, lastName, email, sourceWebsite } = req.body;
-
-    console.log("📞 Truecaller verification request received");
-    console.log("Has token:", !!verificationToken);
-    console.log("Has phone:", !!phoneNumber);
-
-    let cleanPhone = null;
-    let userName = null;
-    let userLastName = null;
-    let userEmail = null;
-
-    // If token provided, decode it
-    if (verificationToken) {
-      try {
-        // Decode JWT token (no verification needed for decoding)
-        const decoded = jwt.decode(verificationToken);
-        console.log("Decoded token:", JSON.stringify(decoded, null, 2));
-        
-        cleanPhone = decoded?.phone_number || decoded?.phoneNumber || decoded?.mobile;
-        userName = decoded?.given_name || decoded?.firstName || decoded?.name;
-        userLastName = decoded?.family_name || decoded?.lastName;
-        userEmail = decoded?.email;
-        
-      } catch (error) {
-        console.error("Token decode error:", error);
-      }
-    } else if (phoneNumber) {
-      // Manual phone number entry
-      cleanPhone = phoneNumber;
-      userName = firstName || 'User';
-      userLastName = lastName || '';
-      userEmail = email || `${phoneNumber}@manual.entry`;
-    }
-
-    // Validate phone number
-    if (!cleanPhone) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Phone number is required' 
-      });
-    }
-
-    // Clean phone number (remove non-digits)
-    const finalPhone = cleanPhone.toString().replace(/[^\d]/g, '');
+    const { requestId } = req.body;
     
-    if (finalPhone.length < 10) {
+    console.log("Handshake received for requestId:", requestId);
+    
+    // Store handshake as acknowledged
+    pendingHandshakes.set(requestId, {
+      acknowledged: true,
+      timestamp: Date.now()
+    });
+    
+    // Send 2XX acknowledgment as required by Truecaller
+    res.status(200).json({ status: 'acknowledged' });
+    
+  } catch (error) {
+    console.error("Handshake error:", error);
+    res.status(200).json({ status: 'error' }); // Still send 2XX to Truecaller
+  }
+};
+
+// Fetch user profile from Truecaller API
+const fetchTruecallerProfile = async (accessToken, endpoint) => {
+  try {
+    const response = await axios.get(endpoint, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Cache-Control': 'no-cache'
+      }
+    });
+    
+    return response.data;
+  } catch (error) {
+    console.error("Failed to fetch Truecaller profile:", error.response?.data || error.message);
+    throw new Error("Failed to fetch user profile from Truecaller");
+  }
+};
+
+// Main verification endpoint (called by frontend after getting access token)
+const verifyTruecallerProfile = async (req, res) => {
+  try {
+    const { accessToken, requestNonce, sourceWebsite } = req.body;
+    
+    console.log("Processing Truecaller verification for nonce:", requestNonce);
+    
+    if (!accessToken) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Invalid phone number format' 
+        message: 'Access token is required' 
       });
     }
-
+    
+    // First, get the user profile from Truecaller
+    // Note: The endpoint should be provided by Truecaller in the callback
+    // For this implementation, we'll use the default endpoint
+    const truecallerEndpoint = 'https://profile4-noneu.truecaller.com/v1/default';
+    
+    const profile = await fetchTruecallerProfile(accessToken, truecallerEndpoint);
+    
+    console.log("Truecaller profile received:", JSON.stringify(profile, null, 2));
+    
+    // Extract user information from profile
+    const phoneNumbers = profile.phoneNumbers || [];
+    const primaryPhone = phoneNumbers[0] || null;
+    const name = profile.name || {};
+    const firstName = name.first || '';
+    const lastName = name.last || '';
+    const email = profile.onlineIdentities?.email || null;
+    const avatarUrl = profile.avatarUrl || '';
+    
+    if (!primaryPhone) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No phone number found in Truecaller profile' 
+      });
+    }
+    
+    // Clean phone number
+    const cleanPhone = primaryPhone.toString().replace(/[^\d]/g, '');
     const website = sourceWebsite || 'cleartitle1';
     
     // Find or create user
-    let user = await User.findOne({ phoneNumber: finalPhone });
+    let user = await User.findOne({ phoneNumber: cleanPhone });
     
     if (!user) {
       // Generate unique username
-      let username = `user_${finalPhone.slice(-8)}`;
+      let username = `user_${cleanPhone.slice(-8)}`;
       let counter = 1;
       
       while (await User.findOne({ username })) {
-        username = `user_${finalPhone.slice(-8)}_${counter}`;
+        username = `user_${cleanPhone.slice(-8)}_${counter}`;
         counter++;
       }
       
       // Create new user
       const userData = {
         username: username,
-        name: userName || 'Truecaller User',
-        lastName: userLastName || '',
-        phoneNumber: finalPhone,
-        gmail: userEmail || `${finalPhone}@truecaller.verified`,
+        name: firstName || 'Truecaller User',
+        lastName: lastName || '',
+        phoneNumber: cleanPhone,
+        gmail: email || `${cleanPhone}@truecaller.verified`,
         password: Math.random().toString(36).slice(-16) + Math.random().toString(36).slice(-16),
         isVerified: true,
         verificationDate: new Date(),
         sourceWebsite: website,
+        avatar: avatarUrl,
         userType: 'buyer',
         websiteLogins: {
           [website]: { 
@@ -622,17 +651,15 @@ const verifyTruecaller = async (req, res) => {
       
       user = new User(userData);
       await user.save();
-      console.log("✅ New user created:", user._id, username);
+      console.log("✅ New user created from Truecaller:", user._id, username);
       
     } else {
       // Update existing user
       user.lastLogin = new Date();
       user.isVerified = true;
+      if (avatarUrl && !user.avatar) user.avatar = avatarUrl;
       
-      if (!user.websiteLogins) {
-        user.websiteLogins = {};
-      }
-      
+      if (!user.websiteLogins) user.websiteLogins = {};
       if (!user.websiteLogins[website]) {
         user.websiteLogins[website] = {
           hasLoggedIn: false,
@@ -647,9 +674,9 @@ const verifyTruecaller = async (req, res) => {
       user.websiteLogins[website].loginCount += 1;
       
       await user.save();
-      console.log("✅ User updated:", user._id);
+      console.log("✅ User updated from Truecaller:", user._id);
     }
-
+    
     // Generate JWT token
     const token = user.getSignedJwtToken();
     
@@ -663,7 +690,8 @@ const verifyTruecaller = async (req, res) => {
         email: user.gmail,
         phoneNumber: user.phoneNumber,
         userType: user.userType,
-        isVerified: user.isVerified
+        isVerified: user.isVerified,
+        avatar: user.avatar
       }
     });
     
@@ -676,11 +704,57 @@ const verifyTruecaller = async (req, res) => {
   }
 };
 
+// Manual phone verification fallback
+const manualVerification = async (req, res) => {
+  try {
+    const { phoneNumber, sourceWebsite } = req.body;
+    
+    const cleanPhone = phoneNumber.toString().replace(/[^\d]/g, '');
+    const website = sourceWebsite || 'cleartitle1';
+    
+    let user = await User.findOne({ phoneNumber: cleanPhone });
+    
+    if (!user) {
+      let username = `user_${cleanPhone.slice(-8)}`;
+      let counter = 1;
+      while (await User.findOne({ username })) {
+        username = `user_${cleanPhone.slice(-8)}_${counter}`;
+        counter++;
+      }
+      
+      user = new User({
+        username: username,
+        name: 'Manual User',
+        lastName: '',
+        phoneNumber: cleanPhone,
+        gmail: `${cleanPhone}@manual.verify`,
+        password: Math.random().toString(36).slice(-16),
+        isVerified: true,
+        sourceWebsite: website,
+        userType: 'buyer',
+        websiteLogins: {
+          [website]: { hasLoggedIn: true, firstLogin: new Date(), lastLogin: new Date(), loginCount: 1 }
+        }
+      });
+      await user.save();
+    }
+    
+    const token = user.getSignedJwtToken();
+    res.json({ success: true, token, user: { id: user._id, name: user.name, phoneNumber: user.phoneNumber } });
+    
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
 
 module.exports = {
   register,
   login,
   googleSignIn,
   updateProfile,
-  checkPhoneUpdate,verifyTruecaller
+  checkPhoneUpdate,  handleHandshake, 
+  verifyTruecallerProfile, 
+  manualVerification 
 };

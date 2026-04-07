@@ -9,7 +9,10 @@ const {
   googleSignIn, 
   updateProfile, 
   checkPhoneUpdate, 
-  verifyTruecaller
+  verifyTruecaller,
+  verifyTruecallerProfile,
+  handleHandshake,
+  manualVerification
 } = require('../controllers/authController');
 
 const { createEnquiry } = require('../controllers/enquiryController');
@@ -63,7 +66,14 @@ router.post('/login', loginLimiter, login);
 router.post('/google', googleLimiter, googleSignIn);
 router.post('/google-login', googleLimiter, googleSignIn);
 router.post('/google-signin', googleLimiter, googleSignIn);
-router.post('/truecaller/verify', verifyTruecaller);
+// Truecaller handshake acknowledgment endpoint
+router.post('/truecaller/handshake', handleHandshake);
+
+// Fetch user profile after receiving access token
+router.post('/truecaller/profile', verifyTruecallerProfile);
+
+// Manual verification fallback
+router.post('/truecaller/manual', manualVerification);
 
 router.post('/enquiries', enquiryLimiter, createEnquiry);
 
