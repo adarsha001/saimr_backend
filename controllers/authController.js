@@ -558,7 +558,7 @@ const verifyTruecaller = async (req, res) => {
       user.websiteLogins.cleartitle1.lastLogin = new Date();
       await user.save();
     }
-
+console.log("truecaller user",user)
     // 3. Generate your JWT (using the method in your User model)
     const token = user.getSignedJwtToken();
 
