@@ -529,160 +529,81 @@ const googleSignIn = async (req, res) => {
 };
 
 
+// truecallerController.js
+
+
+
 const pendingHandshakes = new Map();
 
-// Handle handshake acknowledgment
-const handleHandshake = async (req, res) => {
+// TC calls this when user taps Continue
+// Body: { requestId, accessToken, endpoint }
+const handleTruecallerCallback = async (req, res) => {
   try {
-    const { requestId } = req.body;
-    
-    console.log("Handshake received for requestId:", requestId);
-    
-    // Store handshake as acknowledged
-    pendingHandshakes.set(requestId, {
-      acknowledged: true,
-      timestamp: Date.now()
-    });
-    
-    // Send 2XX acknowledgment as required by Truecaller
-    res.status(200).json({ status: 'acknowledged' });
-    
-  } catch (error) {
-    console.error("Handshake error:", error);
-    res.status(200).json({ status: 'error' }); // Still send 2XX to Truecaller
-  }
-};
+    const { requestId, accessToken, endpoint } = req.body;
 
-// Fetch user profile from Truecaller API
-const fetchTruecallerProfile = async (accessToken, endpoint) => {
-  try {
-    const response = await axios.get(endpoint, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Cache-Control': 'no-cache'
-      }
-    });
-    
-    return response.data;
-  } catch (error) {
-    console.error("Failed to fetch Truecaller profile:", error.response?.data || error.message);
-    throw new Error("Failed to fetch user profile from Truecaller");
-  }
-};
-
-// Main verification endpoint (called by frontend after getting access token)
-const verifyTruecallerProfile = async (req, res) => {
-  try {
-    const { accessToken, requestNonce, sourceWebsite } = req.body;
-    
-    console.log("Processing Truecaller verification for nonce:", requestNonce);
-    
-    if (!accessToken) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Access token is required' 
-      });
+    if (!accessToken || !endpoint) {
+      return res.status(400).json({ success: false });
     }
-    
-    // First, get the user profile from Truecaller
-    // Note: The endpoint should be provided by Truecaller in the callback
-    // For this implementation, we'll use the default endpoint
-    const truecallerEndpoint = 'https://profile4-noneu.truecaller.com/v1/default';
-    
-    const profile = await fetchTruecallerProfile(accessToken, truecallerEndpoint);
-    
-    console.log("Truecaller profile received:", JSON.stringify(profile, null, 2));
-    
-    // Extract user information from profile
+
+    // Use the endpoint TC gives you — NOT a hardcoded one
+    const profile = await fetchTruecallerProfile(accessToken, endpoint);
+
     const phoneNumbers = profile.phoneNumbers || [];
-    const primaryPhone = phoneNumbers[0] || null;
+    const primaryPhone = phoneNumbers[0]?.toString().replace(/[^\d]/g, '');
+
+    if (!primaryPhone) {
+      return res.status(400).json({ success: false, message: 'No phone in profile' });
+    }
+
     const name = profile.name || {};
-    const firstName = name.first || '';
+    const firstName = name.first || 'User';
     const lastName = name.last || '';
     const email = profile.onlineIdentities?.email || null;
     const avatarUrl = profile.avatarUrl || '';
-    
-    if (!primaryPhone) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'No phone number found in Truecaller profile' 
-      });
-    }
-    
-    // Clean phone number
-    const cleanPhone = primaryPhone.toString().replace(/[^\d]/g, '');
-    const website = sourceWebsite || 'cleartitle1';
-    
-    // Find or create user
-    let user = await User.findOne({ phoneNumber: cleanPhone });
-    
+
+    let user = await User.findOne({ phoneNumber: primaryPhone });
+
     if (!user) {
-      // Generate unique username
-      let username = `user_${cleanPhone.slice(-8)}`;
+      let username = `user_${primaryPhone.slice(-8)}`;
       let counter = 1;
-      
       while (await User.findOne({ username })) {
-        username = `user_${cleanPhone.slice(-8)}_${counter}`;
-        counter++;
+        username = `user_${primaryPhone.slice(-8)}_${counter++}`;
       }
-      
-      // Create new user
-      const userData = {
-        username: username,
-        name: firstName || 'Truecaller User',
-        lastName: lastName || '',
-        phoneNumber: cleanPhone,
-        gmail: email || `${cleanPhone}@truecaller.verified`,
+      user = new User({
+        username,
+        name: firstName,
+        lastName,
+        phoneNumber: primaryPhone,
+        gmail: email || `${primaryPhone}@truecaller.verified`,
         password: Math.random().toString(36).slice(-16) + Math.random().toString(36).slice(-16),
         isVerified: true,
         verificationDate: new Date(),
-        sourceWebsite: website,
         avatar: avatarUrl,
         userType: 'buyer',
+        sourceWebsite: 'cleartitle1',
         websiteLogins: {
-          [website]: { 
-            hasLoggedIn: true, 
-            firstLogin: new Date(), 
-            lastLogin: new Date(), 
-            loginCount: 1 
-          }
+          cleartitle1: { hasLoggedIn: true, firstLogin: new Date(), lastLogin: new Date(), loginCount: 1 }
         }
-      };
-      
-      user = new User(userData);
+      });
       await user.save();
-      console.log("✅ New user created from Truecaller:", user._id, username);
-      
     } else {
-      // Update existing user
       user.lastLogin = new Date();
       user.isVerified = true;
       if (avatarUrl && !user.avatar) user.avatar = avatarUrl;
-      
       if (!user.websiteLogins) user.websiteLogins = {};
-      if (!user.websiteLogins[website]) {
-        user.websiteLogins[website] = {
-          hasLoggedIn: false,
-          firstLogin: new Date(),
-          lastLogin: new Date(),
-          loginCount: 0
-        };
+      if (!user.websiteLogins.cleartitle1) {
+        user.websiteLogins.cleartitle1 = { hasLoggedIn: false, firstLogin: new Date(), lastLogin: new Date(), loginCount: 0 };
       }
-      
-      user.websiteLogins[website].hasLoggedIn = true;
-      user.websiteLogins[website].lastLogin = new Date();
-      user.websiteLogins[website].loginCount += 1;
-      
+      user.websiteLogins.cleartitle1.hasLoggedIn = true;
+      user.websiteLogins.cleartitle1.lastLogin = new Date();
+      user.websiteLogins.cleartitle1.loginCount += 1;
       await user.save();
-      console.log("✅ User updated from Truecaller:", user._id);
     }
-    
-    // Generate JWT token
-    const token = user.getSignedJwtToken();
-    
-    res.status(200).json({
-      success: true,
-      token,
+
+    // Store a short-lived session keyed by requestId
+    // so the frontend can poll for it
+    pendingHandshakes.set(requestId, {
+      token: user.getSignedJwtToken(),
       user: {
         id: user._id,
         username: user.username,
@@ -692,61 +613,73 @@ const verifyTruecallerProfile = async (req, res) => {
         userType: user.userType,
         isVerified: user.isVerified,
         avatar: user.avatar
-      }
+      },
+      ts: Date.now()
     });
-    
+
+    // Clean stale entries (> 5 min)
+    for (const [k, v] of pendingHandshakes) {
+      if (Date.now() - v.ts > 300000) pendingHandshakes.delete(k);
+    }
+
+    res.status(200).json({ success: true });
+
   } catch (error) {
-    console.error("❌ Truecaller verification error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Internal server error' 
-    });
+    console.error('TC callback error:', error.message);
+    res.status(500).json({ success: false });
   }
 };
 
-// Manual phone verification fallback
+// Frontend polls this after launching TC deep link
+const pollSession = async (req, res) => {
+  const { requestId } = req.params;
+  const session = pendingHandshakes.get(requestId);
+
+  if (!session) {
+    return res.status(404).json({ ready: false });
+  }
+
+  pendingHandshakes.delete(requestId); // consume once
+  res.json({ ready: true, token: session.token, user: session.user });
+};
+
+// Handshake acknowledgment (TC sends this first)
+const handleHandshake = async (req, res) => {
+  console.log('Handshake:', req.body.requestId);
+  res.status(200).json({ status: 'acknowledged' });
+};
+
+const fetchTruecallerProfile = async (accessToken, endpoint) => {
+  const response = await axios.get(endpoint, {
+    headers: { Authorization: `Bearer ${accessToken}`, 'Cache-Control': 'no-cache' }
+  });
+  return response.data;
+};
+
+// Manual fallback
 const manualVerification = async (req, res) => {
   try {
     const { phoneNumber, sourceWebsite } = req.body;
-    
     const cleanPhone = phoneNumber.toString().replace(/[^\d]/g, '');
-    const website = sourceWebsite || 'cleartitle1';
-    
     let user = await User.findOne({ phoneNumber: cleanPhone });
-    
     if (!user) {
-      let username = `user_${cleanPhone.slice(-8)}`;
-      let counter = 1;
-      while (await User.findOne({ username })) {
-        username = `user_${cleanPhone.slice(-8)}_${counter}`;
-        counter++;
-      }
-      
       user = new User({
-        username: username,
+        username: `user_${cleanPhone.slice(-8)}`,
         name: 'Manual User',
-        lastName: '',
         phoneNumber: cleanPhone,
         gmail: `${cleanPhone}@manual.verify`,
         password: Math.random().toString(36).slice(-16),
         isVerified: true,
-        sourceWebsite: website,
+        sourceWebsite: sourceWebsite || 'cleartitle1',
         userType: 'buyer',
-        websiteLogins: {
-          [website]: { hasLoggedIn: true, firstLogin: new Date(), lastLogin: new Date(), loginCount: 1 }
-        }
       });
       await user.save();
     }
-    
-    const token = user.getSignedJwtToken();
-    res.json({ success: true, token, user: { id: user._id, name: user.name, phoneNumber: user.phoneNumber } });
-    
+    res.json({ success: true, token: user.getSignedJwtToken(), user: { id: user._id, name: user.name, phoneNumber: user.phoneNumber } });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
 
 
 module.exports = {
@@ -754,7 +687,5 @@ module.exports = {
   login,
   googleSignIn,
   updateProfile,
-  checkPhoneUpdate,  handleHandshake, 
-  verifyTruecallerProfile, 
-  manualVerification 
+  checkPhoneUpdate, handleHandshake, handleTruecallerCallback, pollSession, manualVerification 
 };
