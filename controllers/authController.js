@@ -531,70 +531,80 @@ const googleSignIn = async (req, res) => {
 
 const verifyTruecaller = async (req, res) => {
   try {
-    const { verificationToken, sourceWebsite } = req.body;
+    const { verificationToken, phoneNumber, firstName, lastName, email, sourceWebsite } = req.body;
 
-    console.log("📞 Truecaller verification request - Token received:", verificationToken ? "Yes" : "No");
+    console.log("📞 Truecaller verification request received");
+    console.log("Has token:", !!verificationToken);
+    console.log("Has phone:", !!phoneNumber);
 
-    if (!verificationToken) {
+    let cleanPhone = null;
+    let userName = null;
+    let userLastName = null;
+    let userEmail = null;
+
+    // If token provided, decode it
+    if (verificationToken) {
+      try {
+        // Decode JWT token (no verification needed for decoding)
+        const decoded = jwt.decode(verificationToken);
+        console.log("Decoded token:", JSON.stringify(decoded, null, 2));
+        
+        cleanPhone = decoded?.phone_number || decoded?.phoneNumber || decoded?.mobile;
+        userName = decoded?.given_name || decoded?.firstName || decoded?.name;
+        userLastName = decoded?.family_name || decoded?.lastName;
+        userEmail = decoded?.email;
+        
+      } catch (error) {
+        console.error("Token decode error:", error);
+      }
+    } else if (phoneNumber) {
+      // Manual phone number entry
+      cleanPhone = phoneNumber;
+      userName = firstName || 'User';
+      userLastName = lastName || '';
+      userEmail = email || `${phoneNumber}@manual.entry`;
+    }
+
+    // Validate phone number
+    if (!cleanPhone) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Verification token is required' 
+        message: 'Phone number is required' 
       });
     }
 
-    // Decode the JWT token from Truecaller (no verification needed for decoding)
-    let decodedToken;
-    try {
-      decodedToken = jwt.decode(verificationToken);
-      console.log("Decoded token:", JSON.stringify(decodedToken, null, 2));
-    } catch (error) {
-      console.error("Failed to decode token:", error);
+    // Clean phone number (remove non-digits)
+    const finalPhone = cleanPhone.toString().replace(/[^\d]/g, '');
+    
+    if (finalPhone.length < 10) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Invalid verification token' 
+        message: 'Invalid phone number format' 
       });
     }
 
-    // Extract user information from decoded token
-    const phoneNumber = decodedToken?.phone_number || decodedToken?.phoneNumber || decodedToken?.mobile;
-    const firstName = decodedToken?.given_name || decodedToken?.firstName;
-    const lastName = decodedToken?.family_name || decodedToken?.lastName;
-    const email = decodedToken?.email;
-    const countryCode = decodedToken?.country_code;
-
-    console.log("Extracted user data:", { phoneNumber, firstName, lastName, email });
-
-    if (!phoneNumber) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Phone number not found in Truecaller token' 
-      });
-    }
-
-    // Clean phone number
-    const cleanPhone = phoneNumber.toString().replace(/[^\d]/g, '');
     const website = sourceWebsite || 'cleartitle1';
     
     // Find or create user
-    let user = await User.findOne({ phoneNumber: cleanPhone });
+    let user = await User.findOne({ phoneNumber: finalPhone });
     
     if (!user) {
       // Generate unique username
-      let username = `user_${cleanPhone.slice(-8)}`;
+      let username = `user_${finalPhone.slice(-8)}`;
       let counter = 1;
       
       while (await User.findOne({ username })) {
-        username = `user_${cleanPhone.slice(-8)}_${counter}`;
+        username = `user_${finalPhone.slice(-8)}_${counter}`;
         counter++;
       }
       
       // Create new user
       const userData = {
         username: username,
-        name: firstName || 'Truecaller User',
-        lastName: lastName || '',
-        phoneNumber: cleanPhone,
-        gmail: email || `${cleanPhone}@truecaller.verified`,
+        name: userName || 'Truecaller User',
+        lastName: userLastName || '',
+        phoneNumber: finalPhone,
+        gmail: userEmail || `${finalPhone}@truecaller.verified`,
         password: Math.random().toString(36).slice(-16) + Math.random().toString(36).slice(-16),
         isVerified: true,
         verificationDate: new Date(),
@@ -665,8 +675,6 @@ const verifyTruecaller = async (req, res) => {
     });
   }
 };
-
-
 
 
 module.exports = {
