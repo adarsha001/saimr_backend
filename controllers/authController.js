@@ -527,40 +527,55 @@ const googleSignIn = async (req, res) => {
     });
   }
 };
+
+
 const verifyTruecaller = async (req, res) => {
   try {
-    const { 
-      phoneNumber, 
-      firstName, 
-      lastName, 
-      email, 
-      sourceWebsite,
-      verificationToken 
-    } = req.body;
+    const { verificationToken, sourceWebsite } = req.body;
 
-    console.log("📞 Truecaller verification request:", { phoneNumber, firstName, lastName, email });
+    console.log("📞 Truecaller verification request - Token received:", verificationToken ? "Yes" : "No");
 
-    // Validate phone number
+    if (!verificationToken) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Verification token is required' 
+      });
+    }
+
+    // Decode the JWT token from Truecaller (no verification needed for decoding)
+    let decodedToken;
+    try {
+      decodedToken = jwt.decode(verificationToken);
+      console.log("Decoded token:", JSON.stringify(decodedToken, null, 2));
+    } catch (error) {
+      console.error("Failed to decode token:", error);
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid verification token' 
+      });
+    }
+
+    // Extract user information from decoded token
+    const phoneNumber = decodedToken?.phone_number || decodedToken?.phoneNumber || decodedToken?.mobile;
+    const firstName = decodedToken?.given_name || decodedToken?.firstName;
+    const lastName = decodedToken?.family_name || decodedToken?.lastName;
+    const email = decodedToken?.email;
+    const countryCode = decodedToken?.country_code;
+
+    console.log("Extracted user data:", { phoneNumber, firstName, lastName, email });
+
     if (!phoneNumber) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Phone number is required' 
+        message: 'Phone number not found in Truecaller token' 
       });
     }
 
-    // Clean phone number (remove +, spaces, special chars)
+    // Clean phone number
     const cleanPhone = phoneNumber.toString().replace(/[^\d]/g, '');
-    
-    if (!cleanPhone || cleanPhone.length < 10) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid phone number format' 
-      });
-    }
-
     const website = sourceWebsite || 'cleartitle1';
     
-    // Find existing user
+    // Find or create user
     let user = await User.findOne({ phoneNumber: cleanPhone });
     
     if (!user) {
@@ -622,13 +637,12 @@ const verifyTruecaller = async (req, res) => {
       user.websiteLogins[website].loginCount += 1;
       
       await user.save();
-      console.log("✅ User updated:", user._id, "Login count:", user.websiteLogins[website].loginCount);
+      console.log("✅ User updated:", user._id);
     }
 
     // Generate JWT token
     const token = user.getSignedJwtToken();
     
-    // Send response
     res.status(200).json({
       success: true,
       token,
@@ -651,6 +665,8 @@ const verifyTruecaller = async (req, res) => {
     });
   }
 };
+
+
 
 
 module.exports = {

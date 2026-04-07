@@ -64,10 +64,9 @@ router.post('/google', googleLimiter, googleSignIn);
 router.post('/google-login', googleLimiter, googleSignIn);
 router.post('/google-signin', googleLimiter, googleSignIn);
 router.post('/truecaller/verify', verifyTruecaller);
-// Enquiry route (public)
+
 router.post('/enquiries', enquiryLimiter, createEnquiry);
 
-// Protected routes
 router.get('/check-phone', apiLimiter, protect, checkPhoneUpdate);
 
 module.exports = router;
