@@ -12,7 +12,9 @@ const {
   verifyTruecaller,
   verifyTruecallerProfile,
   handleHandshake,
-  manualVerification
+  manualVerification,
+  pollSession,
+  handleTruecallerCallback
 } = require('../controllers/authController');
 
 const { createEnquiry } = require('../controllers/enquiryController');
