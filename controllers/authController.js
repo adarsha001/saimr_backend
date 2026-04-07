@@ -529,50 +529,126 @@ const googleSignIn = async (req, res) => {
 };
 const verifyTruecaller = async (req, res) => {
   try {
-    const { phoneNumber, firstName, lastName, email, sourceWebsite } = req.body;
+    const { 
+      phoneNumber, 
+      firstName, 
+      lastName, 
+      email, 
+      sourceWebsite,
+      verificationToken 
+    } = req.body;
 
-    // 1. Clean the phone number (remove +, spaces, etc.)
-    const cleanPhone = phoneNumber.replace(/[^\d]/g, '');
+    console.log("📞 Truecaller verification request:", { phoneNumber, firstName, lastName, email });
 
-    // 2. Find or Create the user
-    let user = await User.findOne({ phoneNumber: cleanPhone });
-
-    if (!user) {
-      // Create a new user if they don't exist
-      user = await User.create({
-        username: `user_${cleanPhone.slice(-5)}`,
-        name: firstName || 'Truecaller',
-        lastName: lastName || 'User',
-        phoneNumber: cleanPhone,
-        gmail: email || `${cleanPhone}@truecaller.temp`, // Fallback email
-        password: Math.random().toString(36).slice(-12), // Random pass for schema req
-        isVerified: true,
-        sourceWebsite: sourceWebsite || 'cleartitle1',
-        websiteLogins: {
-          cleartitle1: { hasLoggedIn: true, firstLogin: new Date(), loginCount: 1 }
-        }
+    // Validate phone number
+    if (!phoneNumber) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Phone number is required' 
       });
-    } else {
-      // Update login stats for existing user
-      user.websiteLogins.cleartitle1.loginCount += 1;
-      user.websiteLogins.cleartitle1.lastLogin = new Date();
-      await user.save();
     }
-console.log("truecaller user",user)
-    // 3. Generate your JWT (using the method in your User model)
-    const token = user.getSignedJwtToken();
 
+    // Clean phone number (remove +, spaces, special chars)
+    const cleanPhone = phoneNumber.toString().replace(/[^\d]/g, '');
+    
+    if (!cleanPhone || cleanPhone.length < 10) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid phone number format' 
+      });
+    }
+
+    const website = sourceWebsite || 'cleartitle1';
+    
+    // Find existing user
+    let user = await User.findOne({ phoneNumber: cleanPhone });
+    
+    if (!user) {
+      // Generate unique username
+      let username = `user_${cleanPhone.slice(-8)}`;
+      let counter = 1;
+      
+      while (await User.findOne({ username })) {
+        username = `user_${cleanPhone.slice(-8)}_${counter}`;
+        counter++;
+      }
+      
+      // Create new user
+      const userData = {
+        username: username,
+        name: firstName || 'Truecaller User',
+        lastName: lastName || '',
+        phoneNumber: cleanPhone,
+        gmail: email || `${cleanPhone}@truecaller.verified`,
+        password: Math.random().toString(36).slice(-16) + Math.random().toString(36).slice(-16),
+        isVerified: true,
+        verificationDate: new Date(),
+        sourceWebsite: website,
+        userType: 'buyer',
+        websiteLogins: {
+          [website]: { 
+            hasLoggedIn: true, 
+            firstLogin: new Date(), 
+            lastLogin: new Date(), 
+            loginCount: 1 
+          }
+        }
+      };
+      
+      user = new User(userData);
+      await user.save();
+      console.log("✅ New user created:", user._id, username);
+      
+    } else {
+      // Update existing user
+      user.lastLogin = new Date();
+      user.isVerified = true;
+      
+      if (!user.websiteLogins) {
+        user.websiteLogins = {};
+      }
+      
+      if (!user.websiteLogins[website]) {
+        user.websiteLogins[website] = {
+          hasLoggedIn: false,
+          firstLogin: new Date(),
+          lastLogin: new Date(),
+          loginCount: 0
+        };
+      }
+      
+      user.websiteLogins[website].hasLoggedIn = true;
+      user.websiteLogins[website].lastLogin = new Date();
+      user.websiteLogins[website].loginCount += 1;
+      
+      await user.save();
+      console.log("✅ User updated:", user._id, "Login count:", user.websiteLogins[website].loginCount);
+    }
+
+    // Generate JWT token
+    const token = user.getSignedJwtToken();
+    
+    // Send response
     res.status(200).json({
       success: true,
       token,
       user: {
         id: user._id,
+        username: user.username,
         name: user.name,
-        phoneNumber: user.phoneNumber
+        email: user.gmail,
+        phoneNumber: user.phoneNumber,
+        userType: user.userType,
+        isVerified: user.isVerified
       }
     });
+    
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    console.error("❌ Truecaller verification error:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Internal server error' 
+    });
   }
 };
 

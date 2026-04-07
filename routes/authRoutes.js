@@ -63,7 +63,7 @@ router.post('/login', loginLimiter, login);
 router.post('/google', googleLimiter, googleSignIn);
 router.post('/google-login', googleLimiter, googleSignIn);
 router.post('/google-signin', googleLimiter, googleSignIn);
-router.post('/truecaller-verify', verifyTruecaller);
+router.post('/truecaller/verify', verifyTruecaller);
 // Enquiry route (public)
 router.post('/enquiries', enquiryLimiter, createEnquiry);
 
