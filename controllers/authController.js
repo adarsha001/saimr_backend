@@ -527,10 +527,60 @@ const googleSignIn = async (req, res) => {
     });
   }
 };
+const verifyTruecaller = async (req, res) => {
+  try {
+    const { phoneNumber, firstName, lastName, email, sourceWebsite } = req.body;
+
+    // 1. Clean the phone number (remove +, spaces, etc.)
+    const cleanPhone = phoneNumber.replace(/[^\d]/g, '');
+
+    // 2. Find or Create the user
+    let user = await User.findOne({ phoneNumber: cleanPhone });
+
+    if (!user) {
+      // Create a new user if they don't exist
+      user = await User.create({
+        username: `user_${cleanPhone.slice(-5)}`,
+        name: firstName || 'Truecaller',
+        lastName: lastName || 'User',
+        phoneNumber: cleanPhone,
+        gmail: email || `${cleanPhone}@truecaller.temp`, // Fallback email
+        password: Math.random().toString(36).slice(-12), // Random pass for schema req
+        isVerified: true,
+        sourceWebsite: sourceWebsite || 'cleartitle1',
+        websiteLogins: {
+          cleartitle1: { hasLoggedIn: true, firstLogin: new Date(), loginCount: 1 }
+        }
+      });
+    } else {
+      // Update login stats for existing user
+      user.websiteLogins.cleartitle1.loginCount += 1;
+      user.websiteLogins.cleartitle1.lastLogin = new Date();
+      await user.save();
+    }
+
+    // 3. Generate your JWT (using the method in your User model)
+    const token = user.getSignedJwtToken();
+
+    res.status(200).json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        phoneNumber: user.phoneNumber
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
 module.exports = {
   register,
   login,
   googleSignIn,
   updateProfile,
-  checkPhoneUpdate
+  checkPhoneUpdate,verifyTruecaller
 };
