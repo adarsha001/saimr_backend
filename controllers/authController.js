@@ -529,131 +529,64 @@ const googleSignIn = async (req, res) => {
 };
 
 
-// truecallerController.js
+// controllers/authController.js
 
+// Temporary in-memory store (Use Redis for production/scaling)
+const pendingLogins = new Map();
 
+ const truecallerCallback = async (req, res) => {
+  const { requestId, status, accessToken, endpoint } = req.body;
 
-const pendingHandshakes = new Map();
+  if (status === "flow_invoked") return res.sendStatus(200);
 
-// TC calls this when user taps Continue
-// Body: { requestId, accessToken, endpoint }
-const handleTruecallerCallback = async (req, res) => {
+  if (status === "user_rejected") {
+    pendingLogins.set(requestId, { error: "User rejected the request" });
+    return res.sendStatus(200);
+  }
+
   try {
-    const { requestId, accessToken, endpoint } = req.body;
-
-    if (!accessToken || !endpoint) {
-      return res.status(400).json({ success: false });
-    }
-
-    // Use the endpoint TC gives you — NOT a hardcoded one
-    const profile = await fetchTruecallerProfile(accessToken, endpoint);
-
-    const phoneNumbers = profile.phoneNumbers || [];
-    const primaryPhone = phoneNumbers[0]?.toString().replace(/[^\d]/g, '');
-
-    if (!primaryPhone) {
-      return res.status(400).json({ success: false, message: 'No phone in profile' });
-    }
-
-    const name = profile.name || {};
-    const firstName = name.first || 'User';
-    const lastName = name.last || '';
-    const email = profile.onlineIdentities?.email || null;
-    const avatarUrl = profile.avatarUrl || '';
-
-    let user = await User.findOne({ phoneNumber: primaryPhone });
-
-    if (!user) {
-      let username = `user_${primaryPhone.slice(-8)}`;
-      let counter = 1;
-      while (await User.findOne({ username })) {
-        username = `user_${primaryPhone.slice(-8)}_${counter++}`;
-      }
-      user = new User({
-        username,
-        name: firstName,
-        lastName,
-        phoneNumber: primaryPhone,
-        gmail: email || `${primaryPhone}@truecaller.verified`,
-        password: Math.random().toString(36).slice(-16) + Math.random().toString(36).slice(-16),
-        isVerified: true,
-        verificationDate: new Date(),
-        avatar: avatarUrl,
-        userType: 'buyer',
-        sourceWebsite: 'cleartitle1',
-        websiteLogins: {
-          cleartitle1: { hasLoggedIn: true, firstLogin: new Date(), lastLogin: new Date(), loginCount: 1 }
-        }
-      });
-      await user.save();
-    } else {
-      user.lastLogin = new Date();
-      user.isVerified = true;
-      if (avatarUrl && !user.avatar) user.avatar = avatarUrl;
-      if (!user.websiteLogins) user.websiteLogins = {};
-      if (!user.websiteLogins.cleartitle1) {
-        user.websiteLogins.cleartitle1 = { hasLoggedIn: false, firstLogin: new Date(), lastLogin: new Date(), loginCount: 0 };
-      }
-      user.websiteLogins.cleartitle1.hasLoggedIn = true;
-      user.websiteLogins.cleartitle1.lastLogin = new Date();
-      user.websiteLogins.cleartitle1.loginCount += 1;
-      await user.save();
-    }
-
-    // Store a short-lived session keyed by requestId
-    // so the frontend can poll for it
-    pendingHandshakes.set(requestId, {
-      token: user.getSignedJwtToken(),
-      user: {
-        id: user._id,
-        username: user.username,
-        name: user.name,
-        email: user.gmail,
-        phoneNumber: user.phoneNumber,
-        userType: user.userType,
-        isVerified: user.isVerified,
-        avatar: user.avatar
-      },
-      ts: Date.now()
+    // 1. Fetch profile from Truecaller
+    const profileRes = await axios.get(endpoint, {
+      headers: { Authorization: `Bearer ${accessToken}` }
     });
+    const profile = profileRes.data;
 
-    // Clean stale entries (> 5 min)
-    for (const [k, v] of pendingHandshakes) {
-      if (Date.now() - v.ts > 300000) pendingHandshakes.delete(k);
+    // 2. Find or Create User (using your model logic)
+    let user = await User.findOne({ phoneNumber: profile.phoneNumbers[0] });
+    if (!user) {
+      user = await User.create({
+        username: `user_${requestId.substring(0, 5)}`, 
+        name: profile.name.first,
+        phoneNumber: profile.phoneNumbers[0],
+        gmail: profile.onlineIdentities?.email || `${profile.phoneNumbers[0]}@placeholder.com`,
+        sourceWebsite: 'cleartitle1'
+      });
     }
 
-    res.status(200).json({ success: true });
+    const token = user.getSignedJwtToken();
 
+    // 3. Store result in Map for polling
+    pendingLogins.set(requestId, { success: true, token, user });
+
+    res.status(200).send("Verification Successful");
   } catch (error) {
-    console.error('TC callback error:', error.message);
-    res.status(500).json({ success: false });
+    pendingLogins.set(requestId, { error: "Verification failed" });
+    res.status(500).send("Error");
   }
 };
 
-// Frontend polls this after launching TC deep link
-const pollSession = async (req, res) => {
+// --- NEW POLLING ENDPOINT ---
+const checkLoginStatus = async (req, res) => {
   const { requestId } = req.params;
-  const session = pendingHandshakes.get(requestId);
+  const loginData = pendingLogins.get(requestId);
 
-  if (!session) {
-    return res.status(404).json({ ready: false });
+  if (!loginData) {
+    return res.json({ status: "pending" });
   }
 
-  pendingHandshakes.delete(requestId); // consume once
-  res.json({ ready: true, token: session.token, user: session.user });
-};
-
-// Handshake acknowledgment (TC sends this first)
-const handleHandshake = async (req, res) => {
-  console.log('Handshake:', req.body.requestId);
-  res.status(200).json({ status: 'acknowledged' });
-};
-
-const fetchTruecallerProfile = async (accessToken, endpoint) => {
-  const response = await axios.get(endpoint, {
-    headers: { Authorization: `Bearer ${accessToken}`, 'Cache-Control': 'no-cache' }
-  });
-  return response.data;
+  // Once data is retrieved, remove it from memory to prevent leaks
+  pendingLogins.delete(requestId);
+  res.json({ status: "complete", ...loginData });
 };
 
 // Manual fallback
@@ -687,5 +620,5 @@ module.exports = {
   login,
   googleSignIn,
   updateProfile,
-  checkPhoneUpdate, handleHandshake, handleTruecallerCallback, pollSession, manualVerification 
+  checkPhoneUpdate,    manualVerification ,checkLoginStatus,truecallerCallback
 };

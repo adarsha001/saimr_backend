@@ -7,14 +7,11 @@ const {
   register, 
   login, 
   googleSignIn, 
-  updateProfile, 
-  checkPhoneUpdate, 
-  verifyTruecaller,
-  verifyTruecallerProfile,
-  handleHandshake,
-  manualVerification,
-  pollSession,
-  handleTruecallerCallback
+  checkPhoneUpdate,
+  checkLoginStatus,
+  truecallerCallback, 
+
+ 
 } = require('../controllers/authController');
 
 const { createEnquiry } = require('../controllers/enquiryController');
@@ -68,12 +65,8 @@ router.post('/login', loginLimiter, login);
 router.post('/google', googleLimiter, googleSignIn);
 router.post('/google-login', googleLimiter, googleSignIn);
 router.post('/google-signin', googleLimiter, googleSignIn);
-// Truecaller handshake acknowledgment endpoint
-router.post('/truecaller/handshake', handleHandshake);
-router.post('/truecaller/callback', handleTruecallerCallback); 
-router.get('/truecaller/session/:requestId', pollSession);
-router.post('/truecaller/manual', manualVerification);
-
+router.get('/truecaller/status/:requestId', checkLoginStatus);
+router.post('/truecaller/callback', truecallerCallback);
 router.post('/enquiries', enquiryLimiter, createEnquiry);
 
 router.get('/check-phone', apiLimiter, protect, checkPhoneUpdate);
