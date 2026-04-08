@@ -9,7 +9,8 @@ const adminPropertyUnitRoutes = require('./routes/adminPropertyUnitRoutes'); // 
 const propertyBatchRoutes = require('./routes/propertyBatchRoutes'); // Correct import
 const carouselRoutes = require('./routes/carouselRoutes');
 const blogRoutes = require('./routes/blogRoutes');
-const helmet=require("helmet")
+const helmet=require("helmet");
+const truecallerRoutes = require('./routes/truecaller');
 dotenv.config();
 
 const app = express();
@@ -47,7 +48,7 @@ app.use(helmet())
 app.use("/api/properties", propertyRoutes);
 app.use('/api/admin/batches',propertyBatchRoutes);
 app.use('/api/carousel', carouselRoutes);
-
+app.use('/api/auth/truecaller', truecallerRoutes);
 app.use('/api/blogs', blogRoutes);
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));

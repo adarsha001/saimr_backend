@@ -70,8 +70,8 @@ router.post('/google-login', googleLimiter, googleSignIn);
 router.post('/google-signin', googleLimiter, googleSignIn);
 // Truecaller handshake acknowledgment endpoint
 router.post('/truecaller/handshake', handleHandshake);
-router.post('/truecaller/callback', handleTruecallerCallback); // ← TC posts token here
-router.get('/truecaller/session/:requestId', pollSession);     // ← frontend polls here
+router.post('/truecaller/callback', handleTruecallerCallback); 
+router.get('/truecaller/session/:requestId', pollSession);
 router.post('/truecaller/manual', manualVerification);
 
 router.post('/enquiries', enquiryLimiter, createEnquiry);
