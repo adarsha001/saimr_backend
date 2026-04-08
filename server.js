@@ -130,15 +130,15 @@ app.use('/sitemap.xml', express.static('public/sitemap.xml'));
 /* =========================
    ✅ ROUTES
 ========================= */
-
+app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api/users', require('./routes/userRoutes'));
 app.use("/api/properties", propertyRoutes);
 app.use('/api/admin/batches', propertyBatchRoutes);
 app.use('/api/carousel', carouselRoutes);
 app.use('/api/auth/truecaller', truecallerRoutes);
 app.use('/api/blogs', blogRoutes);
 
-app.use('/api/auth', require('./routes/authRoutes'));
-app.use('/api/users', require('./routes/userRoutes'));
+
 app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/admin/agent', require('./routes/agentroute'));
 app.use('/api/clicks', require('./routes/clicks'));
