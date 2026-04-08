@@ -586,29 +586,28 @@ const pendingLogins = new Map();
 const checkLoginStatus = async (req, res) => {
   try {
     const { requestId } = req.params;
+    
+    // Log to Render console so you can see if the request hits the backend
+    console.log("Checking status for ID:", requestId);
 
-    // 1. Check if the requestId exists at all
+    if (!pendingLogins || typeof pendingLogins.has !== 'function') {
+        console.error("DATA STRUCTURE ERROR: pendingLogins Map is not initialized!");
+        return res.status(200).json({ status: "error", message: "Server Map Error" });
+    }
+
     if (!pendingLogins.has(requestId)) {
-      return res.status(200).json({ 
-        status: "pending", 
-        message: "Waiting for callback..." 
-      });
+      return res.status(200).json({ status: "pending" });
     }
 
     const data = pendingLogins.get(requestId);
-
-    // 2. If data exists, return it and clear it from memory
     pendingLogins.delete(requestId);
     
-    return res.status(200).json({ 
-      status: "complete", 
-      ...data 
-    });
+    return res.status(200).json({ status: "complete", ...data });
 
   } catch (error) {
-    console.error("Polling Endpoint Error:", error);
-    // This prevents the 500 by catching unexpected issues
-    res.status(500).json({ status: "error", message: error.message });
+    // THIS PREVENTS THE 500
+    console.error("POLLING_LOGIC_CRASH:", error);
+    return res.status(200).json({ status: "error", message: "Caught crash" });
   }
 };
 
