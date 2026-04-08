@@ -537,56 +537,79 @@ const pendingLogins = new Map();
  const truecallerCallback = async (req, res) => {
   const { requestId, status, accessToken, endpoint } = req.body;
 
-  if (status === "flow_invoked") return res.sendStatus(200);
-
-  if (status === "user_rejected") {
-    pendingLogins.set(requestId, { error: "User rejected the request" });
-    return res.sendStatus(200);
-  }
-
   try {
-    // 1. Fetch profile from Truecaller
+    if (status === "flow_invoked") return res.sendStatus(200);
+    if (status === "user_rejected") {
+      pendingLogins.set(requestId, { success: false, error: "Rejected by user" });
+      return res.sendStatus(200);
+    }
+
+    // Wrap the profile fetch in its own try/catch
     const profileRes = await axios.get(endpoint, {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
+
     const profile = profileRes.data;
 
-    // 2. Find or Create User (using your model logic)
-    let user = await User.findOne({ phoneNumber: profile.phoneNumbers[0] });
+    // Use Optional Chaining (?.) to prevent crashes
+    const email = profile.onlineIdentities?.email || `${profile.phoneNumbers?.[0]}@cleartitle1.com`;
+    const phone = profile.phoneNumbers?.[0];
+
+    if (!phone) throw new Error("No phone number received");
+
+    let user = await User.findOne({ phoneNumber: phone });
+    
     if (!user) {
       user = await User.create({
-        username: `user_${requestId.substring(0, 5)}`, 
-        name: profile.name.first,
-        phoneNumber: profile.phoneNumbers[0],
-        gmail: profile.onlineIdentities?.email || `${profile.phoneNumbers[0]}@placeholder.com`,
+        username: phone, // Safe fallback
+        name: profile.name?.first || "Truecaller User",
+        phoneNumber: phone,
+        gmail: email,
+        isGoogleAuth: false,
         sourceWebsite: 'cleartitle1'
       });
     }
 
     const token = user.getSignedJwtToken();
-
-    // 3. Store result in Map for polling
     pendingLogins.set(requestId, { success: true, token, user });
+    
+    res.sendStatus(200);
 
-    res.status(200).send("Verification Successful");
   } catch (error) {
-    pendingLogins.set(requestId, { error: "Verification failed" });
-    res.status(500).send("Error");
+    console.error("Truecaller Callback Crash:", error.response?.data || error.message);
+    // Store the error so the Polling frontend knows why it failed
+    pendingLogins.set(requestId, { success: false, error: "Verification failed on server" });
+    res.status(200).send("Handled crash"); // Still return 200 to Truecaller to stop retries
   }
 };
-
 // --- NEW POLLING ENDPOINT ---
 const checkLoginStatus = async (req, res) => {
-  const { requestId } = req.params;
-  const loginData = pendingLogins.get(requestId);
+  try {
+    const { requestId } = req.params;
 
-  if (!loginData) {
-    return res.json({ status: "pending" });
+    // 1. Check if the requestId exists at all
+    if (!pendingLogins.has(requestId)) {
+      return res.status(200).json({ 
+        status: "pending", 
+        message: "Waiting for callback..." 
+      });
+    }
+
+    const data = pendingLogins.get(requestId);
+
+    // 2. If data exists, return it and clear it from memory
+    pendingLogins.delete(requestId);
+    
+    return res.status(200).json({ 
+      status: "complete", 
+      ...data 
+    });
+
+  } catch (error) {
+    console.error("Polling Endpoint Error:", error);
+    // This prevents the 500 by catching unexpected issues
+    res.status(500).json({ status: "error", message: error.message });
   }
-
-  // Once data is retrieved, remove it from memory to prevent leaks
-  pendingLogins.delete(requestId);
-  res.json({ status: "complete", ...loginData });
 };
 
 // Manual fallback
