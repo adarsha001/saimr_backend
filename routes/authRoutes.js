@@ -18,7 +18,6 @@ const { createEnquiry } = require('../controllers/enquiryController');
 const { protect } = require('../middleware/authMiddleware');
 const detectWebsite = require('../middleware/detectWebsite');
 
-router.use(detectWebsite);
 
 /* ================= RATE LIMITERS ================= */
 
@@ -61,6 +60,9 @@ const apiLimiter = rateLimit({
 router.get('/truecaller/status/:requestId', checkLoginStatus);
 router.post('/truecaller/callback', truecallerCallback);
 // Public routes
+
+
+router.use(detectWebsite);
 router.post('/register', registerLimiter, register);
 router.post('/login', loginLimiter, login);
 
