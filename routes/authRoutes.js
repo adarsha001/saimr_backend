@@ -58,6 +58,8 @@ const apiLimiter = rateLimit({
 
 /* ================= ROUTES ================= */
 
+router.get('/truecaller/status/:requestId', checkLoginStatus);
+router.post('/truecaller/callback', truecallerCallback);
 // Public routes
 router.post('/register', registerLimiter, register);
 router.post('/login', loginLimiter, login);
@@ -65,8 +67,6 @@ router.post('/login', loginLimiter, login);
 router.post('/google', googleLimiter, googleSignIn);
 router.post('/google-login', googleLimiter, googleSignIn);
 router.post('/google-signin', googleLimiter, googleSignIn);
-router.get('/truecaller/status/:requestId', checkLoginStatus);
-router.post('/truecaller/callback', truecallerCallback);
 router.post('/enquiries', enquiryLimiter, createEnquiry);
 
 router.get('/check-phone', apiLimiter, protect, checkPhoneUpdate);
