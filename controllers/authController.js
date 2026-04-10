@@ -584,32 +584,44 @@ const pendingLogins = new Map();
 };
 // --- NEW POLLING ENDPOINT ---
 const checkLoginStatus = async (req, res) => {
-  try {
-    const { requestId } = req.params;
-    
-    // Log to Render console so you can see if the request hits the backend
-    console.log("Checking status for ID:", requestId);
-
-    if (!pendingLogins || typeof pendingLogins.has !== 'function') {
-        console.error("DATA STRUCTURE ERROR: pendingLogins Map is not initialized!");
-        return res.status(200).json({ status: "error", message: "Server Map Error" });
-    }
-
-    if (!pendingLogins.has(requestId)) {
-      return res.status(200).json({ status: "pending" });
-    }
-
-    const data = pendingLogins.get(requestId);
-    pendingLogins.delete(requestId);
-    
-    return res.status(200).json({ status: "complete", ...data });
-
-  } catch (error) {
-    // THIS PREVENTS THE 500
-    console.error("POLLING_LOGIC_CRASH:", error);
-    return res.status(200).json({ status: "error", message: "Caught crash" });
+  const { requestId } = req.params;
+  
+  // Check if we have data for this requestId
+  const loginData = pendingLogins.get(requestId);
+  
+  if (!loginData) {
+    return res.json({ 
+      status: "pending", 
+      success: false 
+    });
   }
-};
+  
+  if (loginData.success) {
+    // Return the token and user data
+    return res.json({
+      status: "complete",
+      success: true,
+      token: loginData.token,
+      user: {
+        id: loginData.user._id,
+        name: loginData.user.name,
+        email: loginData.user.gmail || loginData.user.email,
+        username: loginData.user.username,
+        phoneNumber: loginData.user.phoneNumber,
+        isTruecallerAuth: true,
+        requiresPhoneUpdate: loginData.user.requiresPhoneUpdate || false,
+        sourceWebsite: loginData.user.sourceWebsite
+      }
+    });
+  } else {
+    // Return error
+    return res.json({
+      status: "error",
+      success: false,
+      error: loginData.error || "Authentication failed"
+    });
+  }
+}
 
 // Manual fallback
 const manualVerification = async (req, res) => {
