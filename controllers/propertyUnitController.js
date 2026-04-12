@@ -1375,30 +1375,40 @@ const getPropertyUnits = async (req, res) => {
 
 
 // In your backend controller - remove or increase the limit
+// Backend route - /api/property-units/featured
+// Backend controller - Fixed version
 const getFeaturedPropertyUnits = async (req, res) => {
   try {
-    // Remove the limit or set it to a very high number
+    // Simple query without population first to test
     const propertyUnits = await PropertyUnit.find({
       isFeatured: true,
       approvalStatus: "approved",
       availability: "available"
     })
-    .sort({ displayOrder: 1, createdAt: -1 }) // Sort by displayOrder then newest first
-    // No .limit() - this will return ALL matching documents
-    .populate("createdBy", "name email phoneNumber avatar")
-    .populate("parentProperty", "name title images")
+    .sort({ displayOrder: 1, createdAt: -1 })
     .lean();
+
+    // If you need population, do it separately or with error handling
+    // const populatedUnits = await PropertyUnit.populate(propertyUnits, [
+    //   { path: "createdBy", select: "name email phoneNumber avatar" },
+    //   { path: "parentProperty", select: "name title images" }
+    // ]);
 
     res.status(200).json({
       success: true,
       count: propertyUnits.length,
       data: propertyUnits
     });
+
   } catch (error) {
-    // Error handling...
+    console.error("Get featured property units error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching featured property units",
+      error: error.message // This will help debug
+    });
   }
 };
-
 
 // Get property unit by ID (Public)
 // propertyUnitController.js - Updated getPropertyUnitById
