@@ -97,7 +97,7 @@ const propertyUnitSchema = new mongoose.Schema(
           },
           facing: {
             type: String,
-            enum: ["north", "south", "east", "west", "north-east", "north-west", "south-east", "south-west"],
+            enum: ["north", "south", "east", "west", "north-east", "north-west", "south-east", "south-west",""],
           },
           isCornerPlot: { type: Boolean, default: false },
           cornerRoads: [String], // e.g., ["Main Road", "Cross Road"]
@@ -113,7 +113,7 @@ const propertyUnitSchema = new mongoose.Schema(
           elevationAvailable: { type: Boolean, default: false },
           soilType: {
             type: String,
-            enum: ["black", "red", "clay", "loamy", "sandy", "rocky", "other"],
+            enum: ["black", "red", "clay", "loamy", "sandy", "rocky", "other",""],
           },
           landUse: {
             type: String,

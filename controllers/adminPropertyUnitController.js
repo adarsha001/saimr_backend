@@ -31,18 +31,26 @@ const getAllPropertyUnits = async (req, res) => {
     const filter = {};
 
     // Search filter
-    if (search && search.trim() !== '') {
-      const searchRegex = new RegExp(search.trim(), 'i');
-      filter.$or = [
-        { title: searchRegex },
-        { description: searchRegex },
-        { address: searchRegex },
-        { city: searchRegex },
-        { 'buildingDetails.name': searchRegex },
-        { unitNumber: searchRegex }
-      ];
-    }
-
+if (search && search.trim() !== '') {
+  const searchRegex = new RegExp(search.trim(), 'i');
+  filter.$or = [
+    { title: searchRegex },
+    { description: searchRegex },
+    { address: searchRegex },
+    { city: searchRegex },
+    { locality: searchRegex },
+    { state: searchRegex },
+    { pincode: searchRegex },
+    { 'buildingDetails.name': searchRegex },
+    { 'buildingDetails.address': searchRegex },
+    { 'buildingDetails.locality': searchRegex },
+    { slug: searchRegex },
+    { complexName: searchRegex },
+    { buildingName: searchRegex },
+    { landmark: searchRegex },
+    { nearbyLandmarks: searchRegex }
+  ];
+}
     // Apply filters
     if (city && city.trim() !== '') {
       filter.city = new RegExp(city.trim(), 'i');
@@ -367,6 +375,8 @@ const createPropertyUnitAdmin = async (req, res) => {
 };
 
 // ✅ Update property unit (Admin)
+// In your backend routes file (e.g., propertyUnitRoutes.js or similar)
+
 const updatePropertyUnitAdmin = async (req, res) => {
   try {
     const { id } = req.params;
@@ -376,24 +386,23 @@ const updatePropertyUnitAdmin = async (req, res) => {
     if (req.body.data) {
       try {
         updateData = JSON.parse(req.body.data);
-        console.log('Parsed admin update data:', Object.keys(updateData));
       } catch (e) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid JSON data format: ' + e.message
+          message: 'Invalid JSON data format'
         });
       }
     }
 
-    // Validate required fields for admin update
-    if (!id) {
+    // Validate ID
+    if (!id || id === 'undefined') {
       return res.status(400).json({
         success: false,
-        message: 'Property unit ID is required'
+        message: 'Invalid property unit ID'
       });
     }
 
-    // Find existing property unit first
+    // Find existing property unit
     const existingPropertyUnit = await PropertyUnit.findById(id);
     if (!existingPropertyUnit) {
       return res.status(404).json({
@@ -402,7 +411,7 @@ const updatePropertyUnitAdmin = async (req, res) => {
       });
     }
 
-    // Prepare update data with proper number conversions
+    // Prepare update data
     const preparedData = {};
 
     // Basic fields
@@ -418,29 +427,19 @@ const updatePropertyUnitAdmin = async (req, res) => {
         preparedData[field] = updateData[field];
       }
     });
-
-    // Handle unitTypes with validation
+    
+    // Handle images
+    if (updateData.images !== undefined) {
+      preparedData.images = updateData.images;
+    }
+    
+    // Handle unitTypes
     if (updateData.unitTypes && Array.isArray(updateData.unitTypes)) {
       preparedData.unitTypes = updateData.unitTypes.map(unit => {
-        // Basic unit validation
-        if (!unit.type) {
-          throw new Error('Unit type is required for each unit');
-        }
-        
-        // Prepare price object
-        let priceAmount = 0;
-        if (unit.price) {
-          if (typeof unit.price === 'object') {
-            priceAmount = unit.price.amount ? Number(unit.price.amount) : 0;
-          } else {
-            priceAmount = Number(unit.price) || 0;
-          }
-        }
-
         const unitData = {
           type: unit.type,
           price: {
-            amount: priceAmount,
+            amount: unit.price?.amount ? Number(unit.price.amount) : 0,
             currency: unit.price?.currency || 'INR',
             perUnit: unit.price?.perUnit || 'total'
           },
@@ -451,33 +450,33 @@ const updatePropertyUnitAdmin = async (req, res) => {
           totalUnits: unit.totalUnits ? Number(unit.totalUnits) : 0,
           availableUnits: unit.availableUnits ? Number(unit.availableUnits) : 0
         };
-
-        // Handle plot details for Plot type
+        
+        // Handle plot details
         if (unit.type === 'Plot' && unit.plotDetails) {
           unitData.plotDetails = {
             dimensions: {
-              length: unit.plotDetails.dimensions?.length ? Number(unit.plotDetails.dimensions.length) : 0,
-              breadth: unit.plotDetails.dimensions?.breadth ? Number(unit.plotDetails.dimensions.breadth) : 0,
-              frontage: unit.plotDetails.dimensions?.frontage ? Number(unit.plotDetails.dimensions.frontage) : 0
+              length: Number(unit.plotDetails.dimensions?.length) || 0,
+              breadth: Number(unit.plotDetails.dimensions?.breadth) || 0,
+              frontage: Number(unit.plotDetails.dimensions?.frontage) || 0
             },
             area: {
-              sqft: unit.plotDetails.area?.sqft ? Number(unit.plotDetails.area.sqft) : (unit.carpetArea ? Number(unit.carpetArea) : 0),
-              sqYards: unit.plotDetails.area?.sqYards ? Number(unit.plotDetails.area.sqYards) : 0,
-              grounds: unit.plotDetails.area?.grounds ? Number(unit.plotDetails.area.grounds) : 0,
-              acres: unit.plotDetails.area?.acres ? Number(unit.plotDetails.area.acres) : 0,
-              cents: unit.plotDetails.area?.cents ? Number(unit.plotDetails.area.cents) : 0
+              sqft: Number(unit.plotDetails.area?.sqft) || Number(unit.carpetArea) || 0,
+              sqYards: Number(unit.plotDetails.area?.sqYards) || 0,
+              grounds: Number(unit.plotDetails.area?.grounds) || 0,
+              acres: Number(unit.plotDetails.area?.acres) || 0,
+              cents: Number(unit.plotDetails.area?.cents) || 0
             },
             shape: unit.plotDetails.shape || 'rectangle',
-            facing: unit.plotDetails.facing || '',
+            facing: unit.plotDetails.facing || null,
             isCornerPlot: unit.plotDetails.isCornerPlot || false,
             cornerRoads: unit.plotDetails.cornerRoads || [],
-            roadWidth: unit.plotDetails.roadWidth ? Number(unit.plotDetails.roadWidth) : 0,
+            roadWidth: Number(unit.plotDetails.roadWidth) || 0,
             roadType: unit.plotDetails.roadType || 'secondary',
             boundaryWalls: unit.plotDetails.boundaryWalls || false,
             fencing: unit.plotDetails.fencing || false,
             gate: unit.plotDetails.gate || false,
             elevationAvailable: unit.plotDetails.elevationAvailable || false,
-            soilType: unit.plotDetails.soilType || '',
+            soilType: unit.plotDetails.soilType || null,
             landUse: unit.plotDetails.landUse || 'residential',
             developmentStatus: unit.plotDetails.developmentStatus || 'developed',
             amenities: unit.plotDetails.amenities || [],
@@ -498,8 +497,12 @@ const updatePropertyUnitAdmin = async (req, res) => {
               subdivisionApproved: unit.plotDetails.approvalDetails?.subdivisionApproved || false
             }
           };
+          
+          // Remove null values
+          if (unitData.plotDetails.facing === null) delete unitData.plotDetails.facing;
+          if (unitData.plotDetails.soilType === null) delete unitData.plotDetails.soilType;
         }
-
+        
         return unitData;
       });
     }
@@ -508,9 +511,9 @@ const updatePropertyUnitAdmin = async (req, res) => {
     if (updateData.buildingDetails) {
       preparedData.buildingDetails = {
         name: updateData.buildingDetails.name || '',
-        totalFloors: updateData.buildingDetails.totalFloors ? Number(updateData.buildingDetails.totalFloors) : 0,
-        totalUnits: updateData.buildingDetails.totalUnits ? Number(updateData.buildingDetails.totalUnits) : 0,
-        yearBuilt: updateData.buildingDetails.yearBuilt ? Number(updateData.buildingDetails.yearBuilt) : 0,
+        totalFloors: Number(updateData.buildingDetails.totalFloors) || 0,
+        totalUnits: Number(updateData.buildingDetails.totalUnits) || 0,
+        yearBuilt: Number(updateData.buildingDetails.yearBuilt) || 0,
         amenities: updateData.buildingDetails.amenities || []
       };
     }
@@ -520,10 +523,10 @@ const updatePropertyUnitAdmin = async (req, res) => {
       preparedData.commonSpecifications = {
         furnishing: updateData.commonSpecifications.furnishing || 'unfurnished',
         possessionStatus: updateData.commonSpecifications.possessionStatus || 'ready-to-move',
-        ageOfProperty: updateData.commonSpecifications.ageOfProperty ? Number(updateData.commonSpecifications.ageOfProperty) : 0,
+        ageOfProperty: Number(updateData.commonSpecifications.ageOfProperty) || 0,
         parking: {
-          covered: updateData.commonSpecifications.parking?.covered ? Number(updateData.commonSpecifications.parking.covered) : 0,
-          open: updateData.commonSpecifications.parking?.open ? Number(updateData.commonSpecifications.parking.open) : 0
+          covered: Number(updateData.commonSpecifications.parking?.covered) || 0,
+          open: Number(updateData.commonSpecifications.parking?.open) || 0
         },
         kitchenType: updateData.commonSpecifications.kitchenType || 'regular'
       };
@@ -560,7 +563,7 @@ const updatePropertyUnitAdmin = async (req, res) => {
         conversionCertificate: updateData.legalDetails.conversionCertificate || false,
         conversionType: updateData.legalDetails.conversionType || '',
         encumbranceCertificate: updateData.legalDetails.encumbranceCertificate || false,
-        encumbranceYears: updateData.legalDetails.encumbranceYears ? Number(updateData.legalDetails.encumbranceYears) : 0,
+        encumbranceYears: Number(updateData.legalDetails.encumbranceYears) || 0,
         ownershipType: updateData.legalDetails.ownershipType || 'freehold',
         bankApprovals: updateData.legalDetails.bankApprovals || [],
         legalStatusSummary: updateData.legalDetails.legalStatusSummary || '',
@@ -576,7 +579,7 @@ const updatePropertyUnitAdmin = async (req, res) => {
         date: slot.date,
         startTime: slot.startTime,
         endTime: slot.endTime,
-        slotsAvailable: slot.slotsAvailable ? Number(slot.slotsAvailable) : 1
+        slotsAvailable: Number(slot.slotsAvailable) || 1
       }));
     }
 
@@ -585,7 +588,7 @@ const updatePropertyUnitAdmin = async (req, res) => {
       preparedData.contactPreference = updateData.contactPreference;
     }
 
-    // Handle image uploads (if files are present)
+    // Handle new image uploads
     if (req.files && req.files.length > 0) {
       const cloudinary = require('cloudinary').v2;
       const newImages = [];
@@ -606,17 +609,8 @@ const updatePropertyUnitAdmin = async (req, res) => {
         }
       }
       
-      // Merge existing images with new ones
-      const existingImages = existingPropertyUnit.images || [];
+      const existingImages = preparedData.images || existingPropertyUnit.images || [];
       preparedData.images = [...existingImages, ...newImages];
-    }
-
-    // Validate rejection reason if status is rejected
-    if (preparedData.approvalStatus === 'rejected' && !preparedData.rejectionReason) {
-      return res.status(400).json({
-        success: false,
-        message: 'Rejection reason is required when rejecting a property unit'
-      });
     }
 
     // Remove undefined fields
@@ -630,41 +624,33 @@ const updatePropertyUnitAdmin = async (req, res) => {
     const propertyUnit = await PropertyUnit.findByIdAndUpdate(
       id,
       preparedData,
-      { new: true, runValidators: true }
+      { 
+        new: true, 
+        runValidators: false
+      }
     ).populate('createdBy', 'name email phoneNumber');
-
+    
     if (!propertyUnit) {
       return res.status(404).json({
         success: false,
         message: 'Property unit not found'
       });
     }
-
+    
     res.status(200).json({
       success: true,
-      message: 'Property unit updated successfully by admin',
+      message: 'Property unit updated successfully',
       data: propertyUnit
     });
-
-  } catch (error) {
-    console.error('Update property unit admin error:', error);
     
-    // Handle validation errors
+  } catch (error) {
+    console.error('Update error:', error);
+    
     if (error.name === 'ValidationError') {
-      const errors = Object.values(error.errors).map(err => err.message);
       return res.status(400).json({
         success: false,
         message: 'Validation error',
-        errors
-      });
-    }
-
-    // Handle duplicate key error
-    if (error.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        message: 'Duplicate field value entered',
-        error: error.keyPattern
+        errors: Object.values(error.errors).map(err => err.message)
       });
     }
 

@@ -389,15 +389,15 @@ exports.getUserById = async (req, res) => {
       .select('-password')
       .populate({
         path: 'likedProperties.property',
-        select: 'title description city propertyLocation price images category approvalStatus isFeatured isVerified attributes features nearby createdAt',
+        select: 'title description city propertyLocation price images category propertyType approvalStatus isFeatured isVerified attributes features nearby createdAt',
         populate: {
           path: 'createdBy',
           select: 'name username gmail phoneNumber'
         }
       })
       .populate({
-        path: 'postedProperties.property',
-        select: 'title description city propertyLocation price images category approvalStatus isFeatured isVerified attributes features nearby createdAt',
+        path: 'postedProperties.property',  // Note: This should include .property
+        select: 'title description city propertyLocation price images category propertyType approvalStatus isFeatured isVerified attributes features nearby createdAt',
         populate: {
           path: 'createdBy',
           select: 'name username gmail phoneNumber'
@@ -419,30 +419,6 @@ exports.getUserById = async (req, res) => {
         : `${process.env.BACKEND_URL || 'http://localhost:5000'}/${user.avatar}`;
     }
 
-    // Process property images
-    const processProperties = (properties) => {
-      return properties.map(item => {
-        const property = item.property ? item.property.toObject() : {};
-        
-        // Process property images
-        if (property.images && Array.isArray(property.images)) {
-          property.images = property.images.map(img => ({
-            ...img,
-            url: img.url && !img.url.startsWith('http') 
-              ? `${process.env.BACKEND_URL || 'http://localhost:5000'}/${img.url}`
-              : img.url
-          }));
-        }
-
-        return {
-          ...property,
-          likedAt: item.likedAt,
-          postedAt: item.postedAt,
-          status: item.status
-        };
-      }).filter(item => item._id);
-    };
-
     res.status(200).json({
       success: true,
       user: {
@@ -462,7 +438,7 @@ exports.getUserById = async (req, res) => {
         // Google Auth Info
         googleId: user.googleId,
         isGoogleAuth: user.isGoogleAuth,
-        avatar: avatarUrl, // Processed avatar URL
+        avatar: avatarUrl,
         emailVerified: user.emailVerified,
         lastLogin: user.lastLogin,
         
@@ -488,19 +464,13 @@ exports.getUserById = async (req, res) => {
         sourceWebsite: user.sourceWebsite,
         websiteLogins: user.websiteLogins,
         
-        // Website login summary
-        isMultiWebsiteUser: user.websiteLogins?.saimgroups?.hasLoggedIn && 
-                           user.websiteLogins?.cleartitle1?.hasLoggedIn,
-        hasLoggedIntoSaimgroups: user.websiteLogins?.saimgroups?.hasLoggedIn || false,
-        hasLoggedIntoCleartitle1: user.websiteLogins?.cleartitle1?.hasLoggedIn || false,
-        
         // Property Information
         likedPropertiesCount: user.likedProperties.length,
         postedPropertiesCount: user.postedProperties.length,
         
-        // Processed properties with images
-        likedProperties: processProperties(user.likedProperties),
-        postedProperties: processProperties(user.postedProperties),
+        // Properties with their metadata
+        likedProperties: user.likedProperties,  // Keep the nested structure
+        postedProperties: user.postedProperties,  // Keep the nested structure
         
         // Settings and Preferences
         notifications: user.notifications,
@@ -527,7 +497,6 @@ exports.getUserById = async (req, res) => {
     });
   }
 };
-
 
 exports.getWebsiteUserStats = async (req, res) => {
   try {
