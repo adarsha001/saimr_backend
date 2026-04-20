@@ -12,7 +12,8 @@ const propertyBatchRoutes = require('./routes/propertyBatchRoutes');
 const carouselRoutes = require('./routes/carouselRoutes');
 const blogRoutes = require('./routes/blogRoutes');
 const truecallerRoutes = require('./routes/truecaller');
-
+const batchViewRoutes = require("./routes/batchViewRoutes");
+const PropertyBatch = require("./models/PropertyBatch");
 dotenv.config();
 
 const app = express();
@@ -146,7 +147,7 @@ app.use("/api/agents", agentRoutes);
 app.use("/api/admin/agents", require('./routes/adminAgentroute'));
 app.use('/api/property-units', propertyUnitRoutes);
 app.use('/api/admin/property-units', adminPropertyUnitRoutes);
-
+app.use("/api/batch-views", batchViewRoutes);
 /* =========================
    ✅ ROOT & HEALTH CHECK
 ========================= */
@@ -263,3 +264,6 @@ process.on('unhandledRejection', (err) => {
 });
 
 module.exports = app;
+
+
+

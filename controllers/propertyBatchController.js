@@ -6,9 +6,10 @@ const cloudinary = require('cloudinary').v2;
 // @desc    Create a new property batch
 // @route   POST /api/property-batches
 // @access  Private/Admin only
+// @access  Private/Admin only
 exports.createBatch = async (req, res) => {
   try {
-    console.log('User making request:', req.user); // Debug log
+    console.log('User making request:', req.user);
     
     // Check if user is authenticated
     if (!req.user || !req.user._id) {
@@ -22,7 +23,7 @@ exports.createBatch = async (req, res) => {
       batchName,
       locationName,
       description,
-      image, // This can be URL or file will be uploaded
+      image,
       propertyUnits = [],
       batchType = 'location_based',
       tags = [],
@@ -55,12 +56,12 @@ exports.createBatch = async (req, res) => {
       });
     }
 
-    // IMAGE HANDLING: Check if image is provided
+    // IMAGE HANDLING
     let uploadedImage = null;
     
     if (req.file) {
-      // Upload file to Cloudinary
       try {
+        const cloudinary = require('cloudinary').v2;
         const result = await cloudinary.uploader.upload(req.file.path, {
           folder: "property_batches",
         });
@@ -78,7 +79,6 @@ exports.createBatch = async (req, res) => {
         });
       }
     } else if (image && image.url) {
-      // Use provided image URL
       uploadedImage = {
         url: image.url,
         public_id: image.public_id || '',
@@ -91,27 +91,37 @@ exports.createBatch = async (req, res) => {
       });
     }
 
-    // Parse property units if they come as string
+    // Parse property units - SUPPORT BOTH FORMATS
     let parsedPropertyUnits = [];
+    let rawPropertyIds = [];
+    
     if (propertyUnits && propertyUnits.length > 0) {
       try {
-        // If propertyUnits is a string (JSON array), parse it
+        // Get property IDs first (support both old and new format)
         if (typeof propertyUnits === 'string') {
-          parsedPropertyUnits = JSON.parse(propertyUnits);
-        } else {
-          parsedPropertyUnits = propertyUnits;
+          rawPropertyIds = JSON.parse(propertyUnits);
+        } else if (Array.isArray(propertyUnits)) {
+          // Check if propertyUnits is array of objects (new format) or array of strings (old format)
+          if (propertyUnits.length > 0 && typeof propertyUnits[0] === 'object' && propertyUnits[0].propertyId) {
+            // Already in new format - extract propertyIds
+            rawPropertyIds = propertyUnits.map(p => p.propertyId);
+          } else {
+            // Old format - array of strings/ObjectIds
+            rawPropertyIds = propertyUnits;
+          }
         }
         
-        // Validate property units exist (admin can access all units)
-        if (parsedPropertyUnits.length > 0) {
+        // Validate property units exist
+        if (rawPropertyIds.length > 0) {
           const validUnits = await PropertyUnit.find({ 
-            _id: { $in: parsedPropertyUnits } 
-          }).select('_id');
+            _id: { $in: rawPropertyIds } 
+          }).select('_id price propertyType');
           
           const validUnitIds = validUnits.map(unit => unit._id.toString());
+          const validUnitsMap = new Map(validUnits.map(unit => [unit._id.toString(), unit]));
           
-          // Check if any invalid property units
-          const invalidUnits = parsedPropertyUnits.filter(unitId => 
+          // Check for invalid property units
+          const invalidUnits = rawPropertyIds.filter(unitId => 
             !validUnitIds.includes(unitId.toString())
           );
           
@@ -122,12 +132,29 @@ exports.createBatch = async (req, res) => {
               validUnits: validUnitIds
             });
           }
+          
+          // Create the new propertyUnits structure with userViews array
+          parsedPropertyUnits = rawPropertyIds.map(propertyId => {
+            const property = validUnitsMap.get(propertyId.toString());
+            return {
+              propertyId: propertyId,
+              userViews: [],
+              propertyStats: {
+                totalViews: 0,
+                uniqueViewers: 0,
+                totalViewDuration: 0,
+                avgViewDuration: 0,
+                lastViewedAt: null
+              }
+            };
+          });
         }
+        
       } catch (parseError) {
         console.error('Property units parse error:', parseError);
         return res.status(400).json({
           success: false,
-          message: 'Invalid property units format'
+          message: 'Invalid property units format. Please provide array of property IDs'
         });
       }
     }
@@ -141,10 +168,7 @@ exports.createBatch = async (req, res) => {
           : locationCoordinates;
       } catch (parseError) {
         console.error('Coordinates parse error:', parseError);
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid coordinates format'
-        });
+        // Continue with empty coordinates
       }
     }
 
@@ -155,16 +179,47 @@ exports.createBatch = async (req, res) => {
         parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
       } catch (parseError) {
         console.error('Tags parse error:', parseError);
-        // Continue with empty tags if parsing fails
         parsedTags = [];
       }
     }
 
-    // Create new batch
+    // Calculate batch statistics from property units
+    let totalPrice = 0;
+    let minPrice = Infinity;
+    let maxPrice = -Infinity;
+    const propertyTypesSet = new Set();
+    
+    if (parsedPropertyUnits.length > 0) {
+      const propertyIds = parsedPropertyUnits.map(p => p.propertyId);
+      const properties = await PropertyUnit.find({ _id: { $in: propertyIds } })
+        .select('unitTypes.price.amount propertyType');
+      
+      properties.forEach(property => {
+        // Get price from first unit type or default to 0
+        let price = 0;
+        if (property.unitTypes && property.unitTypes.length > 0) {
+          price = property.unitTypes[0].price?.amount || 0;
+        }
+        
+        totalPrice += price;
+        if (price < minPrice) minPrice = price;
+        if (price > maxPrice) maxPrice = price;
+        
+        if (property.propertyType) {
+          propertyTypesSet.add(property.propertyType);
+        }
+      });
+    }
+    
+    const avgPrice = parsedPropertyUnits.length > 0 ? totalPrice / parsedPropertyUnits.length : 0;
+    if (minPrice === Infinity) minPrice = 0;
+    if (maxPrice === -Infinity) maxPrice = 0;
+
+    // Create new batch with the correct structure
     const batch = new PropertyBatch({
-      batchName,
-      locationName,
-      description,
+      batchName: batchName.trim(),
+      locationName: locationName.trim(),
+      description: description || '',
       image: uploadedImage,
       propertyUnits: parsedPropertyUnits,
       batchType,
@@ -172,20 +227,32 @@ exports.createBatch = async (req, res) => {
       tags: parsedTags,
       isActive: isActive === 'true' || isActive === true,
       displayOrder: parseInt(displayOrder) || 0,
-      createdBy: req.user._id
+      createdBy: req.user._id,
+      stats: {
+        totalProperties: parsedPropertyUnits.length,
+        totalViews: 0,
+        uniqueViewers: 0,
+        avgPrice: avgPrice,
+        minPrice: minPrice,
+        maxPrice: maxPrice,
+        propertyTypes: Array.from(propertyTypesSet),
+        lastViewedAt: null
+      }
     });
 
     // Save the batch
     await batch.save();
     
-    // Populate basic creator info
+    // Populate references
     await batch.populate('createdBy', 'name email username');
+    await batch.populate('propertyUnits.propertyId', 'title propertyType city price images');
 
     res.status(201).json({
       success: true,
       data: batch,
-      message: 'Property batch created successfully'
+      message: `Property batch '${batch.batchName}' created successfully with ${parsedPropertyUnits.length} properties`
     });
+    
   } catch (error) {
     console.error('Error creating batch:', error);
     
@@ -197,13 +264,22 @@ exports.createBatch = async (req, res) => {
       });
     }
     
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors: errors
+      });
+    }
+    
     res.status(500).json({
       success: false,
-      message: error.message || 'Server error'
+      message: error.message || 'Server error creating batch'
     });
   }
 };
-
 // @desc    Get all property batches
 // @route   GET /api/property-batches
 // @access  Public

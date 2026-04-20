@@ -1373,6 +1373,7 @@ const getPropertyUnits = async (req, res) => {
   }
 };
 
+// In batchService.js
 
 // In your backend controller - remove or increase the limit
 // Backend route - /api/property-units/featured
@@ -2123,7 +2124,340 @@ const deletePropertyUnit = async (req, res) => {
 // Add to your exports
 
 };
+// Backend Controller - Get all property units without pagination
+const getAllPropertyUnitsNoPagination = async (req, res) => {
+  try {
+    const {
+      city,
+      propertyType,
+      minPrice,
+      maxPrice,
+      unitType,
+      furnishing,
+      possessionStatus,
+      kitchenType,
+      listingType,
+      availability,
+      isFeatured,
+      isVerified,
+      search: searchQuery,
+      approvalStatus,
+      createdBy,
+      bedrooms,
+      bathrooms,
+      carpetAreaMin,
+      carpetAreaMax,
+      builtUpAreaMin,
+      builtUpAreaMax,
+      parkingSpaces,
+      reraRegistered,
+      khataStatus,
+      ownershipType,
+      plotLandUse,
+      plotDevelopmentStatus,
+      nearbyAmenity,
+      nearbyDistanceMax,
+      excludeBatch // New parameter to exclude units already in a batch
+    } = req.query;
 
+    // Build filter
+    const filter = {};
+
+    // User type check
+    const isAdmin = req.user && (req.user.userType === 'admin' || req.user.userType === 'superadmin');
+
+    // Set default filters for non-admin users
+    if (!isAdmin) {
+      filter.approvalStatus = 'approved';
+      filter.availability = 'available';
+    } else {
+      if (approvalStatus) {
+        filter.approvalStatus = approvalStatus;
+      }
+      if (availability) {
+        filter.availability = availability;
+      }
+    }
+
+    // Exclude units already in a batch - FIXED: Check if excludeBatch is valid
+    if (excludeBatch && excludeBatch !== 'null' && excludeBatch !== 'undefined') {
+      // Only add the filter if excludeBatch is a valid string
+      filter.batchId = { $ne: excludeBatch };
+    }
+
+    // Apply basic filters (rest of your filters remain the same)
+    if (city && city.trim() !== '') {
+      filter.city = new RegExp(city.trim(), 'i');
+    }
+    
+    if (propertyType && propertyType.trim() !== '') {
+      filter.propertyType = propertyType.trim();
+    }
+    
+    if (listingType && listingType.trim() !== '') {
+      filter.listingType = listingType.trim();
+    }
+    
+    // Filter by unit type
+    if (unitType && unitType.trim() !== '') {
+      filter['unitTypes.type'] = unitType.trim();
+    }
+    
+    // Filter by bedrooms count
+    if (bedrooms && !isNaN(bedrooms)) {
+      const bedroomPattern = new RegExp(`${bedrooms}BHK`);
+      filter['unitTypes.type'] = bedroomPattern;
+    }
+    
+    // Price range filter
+    if (minPrice || maxPrice) {
+      filter['unitTypes.price.amount'] = {};
+      if (minPrice && !isNaN(minPrice)) {
+        filter['unitTypes.price.amount'].$gte = Number(minPrice);
+      }
+      if (maxPrice && !isNaN(maxPrice)) {
+        filter['unitTypes.price.amount'].$lte = Number(maxPrice);
+      }
+    }
+    
+    // Area filters
+    if (carpetAreaMin && !isNaN(carpetAreaMin)) {
+      filter['unitTypes.carpetArea'] = { $gte: Number(carpetAreaMin) };
+    }
+    if (carpetAreaMax && !isNaN(carpetAreaMax)) {
+      if (!filter['unitTypes.carpetArea']) filter['unitTypes.carpetArea'] = {};
+      filter['unitTypes.carpetArea'].$lte = Number(carpetAreaMax);
+    }
+    
+    if (builtUpAreaMin && !isNaN(builtUpAreaMin)) {
+      filter['unitTypes.builtUpArea'] = { $gte: Number(builtUpAreaMin) };
+    }
+    if (builtUpAreaMax && !isNaN(builtUpAreaMax)) {
+      if (!filter['unitTypes.builtUpArea']) filter['unitTypes.builtUpArea'] = {};
+      filter['unitTypes.builtUpArea'].$lte = Number(builtUpAreaMax);
+    }
+    
+    // Specifications filters
+    if (furnishing && furnishing.trim() !== '') {
+      filter['commonSpecifications.furnishing'] = furnishing.trim();
+    }
+    
+    if (possessionStatus && possessionStatus.trim() !== '') {
+      filter['commonSpecifications.possessionStatus'] = possessionStatus.trim();
+    }
+    
+    if (kitchenType && kitchenType.trim() !== '') {
+      filter['commonSpecifications.kitchenType'] = kitchenType.trim();
+    }
+    
+    // Parking filter
+    if (parkingSpaces && !isNaN(parkingSpaces)) {
+      filter.$or = [
+        { 'commonSpecifications.parking.covered': { $gte: Number(parkingSpaces) } },
+        { 'commonSpecifications.parking.open': { $gte: Number(parkingSpaces) } }
+      ];
+    }
+    
+    // Legal filters
+    if (reraRegistered !== undefined && reraRegistered !== '') {
+      filter['legalDetails.reraRegistered'] = reraRegistered === 'true';
+    }
+    
+    if (khataStatus && khataStatus.trim() !== '') {
+      filter['legalDetails.khataStatus'] = khataStatus.trim();
+    }
+    
+    if (ownershipType && ownershipType.trim() !== '') {
+      filter['legalDetails.ownershipType'] = ownershipType.trim();
+    }
+    
+    // Plot-specific filters
+    if (plotLandUse && plotLandUse.trim() !== '') {
+      filter['unitTypes.plotDetails.landUse'] = plotLandUse.trim();
+    }
+    
+    if (plotDevelopmentStatus && plotDevelopmentStatus.trim() !== '') {
+      filter['unitTypes.plotDetails.developmentStatus'] = plotDevelopmentStatus.trim();
+    }
+    
+    // Nearby amenities filter
+    if (nearbyAmenity && nearbyAmenity.trim() !== '') {
+      const amenityFilter = { 'locationNearby.name': new RegExp(nearbyAmenity.trim(), 'i') };
+      
+      if (nearbyDistanceMax && !isNaN(nearbyDistanceMax)) {
+        amenityFilter['locationNearby.distance'] = { 
+          $regex: new RegExp(`^(0|[1-9]${nearbyDistanceMax})\\.?\\d*km?$`, 'i')
+        };
+      }
+      
+      filter.$and = filter.$and || [];
+      filter.$and.push(amenityFilter);
+    }
+    
+    // Admin-only filters
+    if (isAdmin) {
+      if (isFeatured !== undefined && isFeatured !== '') {
+        filter.isFeatured = isFeatured === 'true';
+      }
+      if (isVerified !== undefined && isVerified !== '') {
+        filter.isVerified = isVerified === 'true';
+      }
+    }
+    
+    // Search filter
+    if (searchQuery && searchQuery.trim() !== '') {
+      const searchRegex = new RegExp(searchQuery.trim(), 'i');
+      filter.$or = [
+        { title: searchRegex },
+        { description: searchRegex },
+        { address: searchRegex },
+        { city: searchRegex },
+        { 'buildingDetails.name': searchRegex },
+        { 'unitTypes.type': searchRegex },
+        { 'locationNearby.name': searchRegex }
+      ];
+    }
+    
+    // Filter by creator
+    if (createdBy && createdBy.trim() !== '') {
+      filter.createdBy = createdBy.trim();
+    }
+
+    // Build sort object
+    let sort = { displayOrder: -1, createdAt: -1 };
+    
+    const sortBy = req.query.sortBy || 'displayOrder';
+    const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
+    
+    const allowedSortFields = {
+      'displayOrder': 'displayOrder',
+      'createdAt': 'createdAt',
+      'updatedAt': 'updatedAt',
+      'title': 'title',
+      'city': 'city',
+      'listingType': 'listingType',
+      'isFeatured': 'isFeatured',
+      'isVerified': 'isVerified',
+      'availability': 'availability',
+      'price': 'unitTypes.price.amount',
+      'carpetArea': 'unitTypes.carpetArea',
+      'builtUpArea': 'unitTypes.builtUpArea',
+      'viewCount': 'viewCount'
+    };
+
+    const sortField = allowedSortFields[sortBy] || 'displayOrder';
+    
+    if (sortField === 'displayOrder') {
+      sort = { 
+        [sortField]: sortOrder,
+        'createdAt': -1
+      };
+    } else if (sortField === 'price') {
+      sort = {
+        'unitTypes.price.amount': sortOrder,
+        displayOrder: -1
+      };
+    } else {
+      sort = {
+        [sortField]: sortOrder,
+        displayOrder: -1,
+        createdAt: -1
+      };
+    }
+
+    // Execute query - NO PAGINATION, get ALL records
+    const query = PropertyUnit.find(filter);
+    
+    if (Object.keys(sort).length > 0) {
+      query.sort(sort);
+    }
+    
+    const propertyUnits = await query
+      .populate('createdBy', 'name email phoneNumber avatar')
+      .lean();
+
+    // Transform data for frontend compatibility (same as before)
+    const transformedData = propertyUnits.map(unit => {
+      const primaryUnitType = unit.unitTypes && unit.unitTypes.length > 0 
+        ? unit.unitTypes.sort((a, b) => a.price.amount - b.price.amount)[0] 
+        : null;
+      
+      const totalParking = (unit.commonSpecifications?.parking?.covered || 0) + 
+                          (unit.commonSpecifications?.parking?.open || 0);
+      
+      const bedroomMatch = primaryUnitType?.type?.match(/\d+/);
+      const bedroomsCount = bedroomMatch ? parseInt(bedroomMatch[0]) : 0;
+      const bathroomsCount = bedroomsCount > 0 ? bedroomsCount : 1;
+      
+      return {
+        ...unit,
+        specifications: {
+          furnishing: unit.commonSpecifications?.furnishing,
+          possessionStatus: unit.commonSpecifications?.possessionStatus,
+          kitchenType: unit.commonSpecifications?.kitchenType,
+          parkingSpaces: totalParking,
+          coveredParking: unit.commonSpecifications?.parking?.covered || 0,
+          openParking: unit.commonSpecifications?.parking?.open || 0,
+          carpetArea: primaryUnitType?.carpetArea || 0,
+          builtUpArea: primaryUnitType?.builtUpArea || 0,
+          superBuiltUpArea: primaryUnitType?.superBuiltUpArea || 0,
+          bedrooms: bedroomsCount,
+          bathrooms: bathroomsCount,
+          floors: primaryUnitType?.floors || unit.buildingDetails?.totalFloors || 1,
+          floorNumber: primaryUnitType?.floorNumber
+        },
+        price: primaryUnitType?.price || null,
+        unitType: primaryUnitType?.type || null,
+        totalUnits: primaryUnitType?.totalUnits || null,
+        availableUnits: primaryUnitType?.availableUnits || null,
+        plotDetails: unit.propertyType === 'Plot' && primaryUnitType?.plotDetails 
+          ? primaryUnitType.plotDetails 
+          : null,
+        locationNearby: unit.locationNearby || [],
+        buildingDetails: unit.buildingDetails || null,
+        unitFeatures: unit.unitFeatures || [],
+        legalDetails: unit.legalDetails || null,
+        unitTypes: unit.unitTypes,
+        hasMultipleUnitTypes: unit.unitTypes && unit.unitTypes.length > 1,
+        unitTypeCount: unit.unitTypes?.length || 0
+      };
+    });
+
+    // Get unique filter options from the actual data
+    const cities = [...new Set(transformedData.map(unit => unit.city).filter(Boolean))];
+    const propertyTypes = [...new Set(transformedData.map(unit => unit.propertyType).filter(Boolean))];
+    
+    // Get bedroom options
+    const bedroomOptions = [...new Set(
+      transformedData
+        .map(unit => unit.specifications?.bedrooms)
+        .filter(beds => beds && beds > 0)
+        .sort((a, b) => a - b)
+    )];
+
+    res.status(200).json({
+      success: true,
+      count: transformedData.length,
+      total: transformedData.length,
+      data: transformedData,
+      filters: {
+        cities: cities,
+        propertyTypes: propertyTypes,
+        bedroomOptions: bedroomOptions
+      }
+    });
+
+  } catch (error) {
+    console.error('Get all property units error:', error);
+    console.error('Error stack:', error.stack);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching property units',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+};
 
 module.exports = {
   createPropertyUnit,
@@ -2132,5 +2466,5 @@ module.exports = {
   updatePropertyUnit,
   deletePropertyUnit,  
 getFeaturedPropertyUnits,
-createPropertyUnitN8n
+createPropertyUnitN8n,getAllPropertyUnitsNoPagination
 };
