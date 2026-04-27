@@ -138,7 +138,7 @@ app.use('/api/admin/batches', propertyBatchRoutes);
 app.use('/api/carousel', carouselRoutes);
 app.use('/api/auth/truecaller', truecallerRoutes);
 app.use('/api/blogs', blogRoutes);
-
+app.use('/api/employee/admin',require("./routes/adminEmployeeRoutes"))
 
 app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/admin/agent', require('./routes/agentroute'));
