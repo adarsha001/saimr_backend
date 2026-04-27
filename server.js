@@ -148,6 +148,8 @@ app.use("/api/admin/agents", require('./routes/adminAgentroute'));
 app.use('/api/property-units', propertyUnitRoutes);
 app.use('/api/admin/property-units', adminPropertyUnitRoutes);
 app.use("/api/batch-views", batchViewRoutes);
+
+app.use('/api/employee',require('./routes/employeeuserroute'))
 /* =========================
    ✅ ROOT & HEALTH CHECK
 ========================= */
