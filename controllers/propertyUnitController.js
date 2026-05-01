@@ -2459,6 +2459,9 @@ const getAllPropertyUnitsNoPagination = async (req, res) => {
   }
 };
 
+
+
+
 module.exports = {
   createPropertyUnit,
   getPropertyUnits,
