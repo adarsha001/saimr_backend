@@ -1791,6 +1791,45 @@ const updatePropertyUnit = async (req, res) => {
       parsedData = req.body;
     }
 
+    // ========== HANDLE IMAGE DELETION ==========
+    // Delete images from Cloudinary if requested
+    const deletedPublicIds = parsedData.deletedImages || [];
+    const deletedDbIds = parsedData.deletedImageIds || [];
+    
+    // Get current images
+    let currentImages = propertyUnit.images || [];
+    
+    // Filter out images that should be deleted from the array
+    let remainingImages = currentImages;
+    
+    // Delete by database ID
+    if (deletedDbIds.length > 0) {
+      remainingImages = remainingImages.filter(img => !deletedDbIds.includes(img._id?.toString()));
+    }
+    
+    // Delete by public_id - also need to remove them from Cloudinary
+    if (deletedPublicIds.length > 0) {
+      const cloudinary = require('cloudinary').v2;
+      
+      // Delete each image from Cloudinary
+      for (const publicId of deletedPublicIds) {
+        try {
+          await cloudinary.uploader.destroy(publicId);
+          console.log(`Deleted Cloudinary image: ${publicId}`);
+        } catch (cloudinaryError) {
+          console.error(`Failed to delete Cloudinary image ${publicId}:`, cloudinaryError);
+          // Continue even if one deletion fails
+        }
+      }
+      
+      // Remove from the remaining images array
+      remainingImages = remainingImages.filter(img => !deletedPublicIds.includes(img.public_id));
+    }
+    
+    // Update the images array
+    updateData.images = remainingImages;
+    // ========== END IMAGE DELETION HANDLING ==========
+
     // If we have parsed data from the form
     if (parsedData) {
       // Handle basic fields
@@ -1975,7 +2014,7 @@ const updatePropertyUnit = async (req, res) => {
       });
     }
 
-    // Handle image uploads
+    // Handle new image uploads
     if (req.files && req.files.length > 0) {
       const cloudinary = require('cloudinary').v2;
       const newImages = [];
@@ -1996,9 +2035,8 @@ const updatePropertyUnit = async (req, res) => {
         }
       }
       
-      // Merge existing images with new ones
-      const existingImages = propertyUnit.images || [];
-      updateData.images = [...existingImages, ...newImages];
+      // Merge remaining images (after deletions) with new ones
+      updateData.images = [...(updateData.images || []), ...newImages];
     }
 
     // Remove undefined fields to avoid overwriting with empty values
@@ -2049,7 +2087,7 @@ const updatePropertyUnit = async (req, res) => {
       error: error.message
     });
   }
-};  
+};
 // Delete property unit (Public)
 const deletePropertyUnit = async (req, res) => {
   try {
