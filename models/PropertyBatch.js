@@ -1,4 +1,4 @@
-// models/PropertyBatch.js - UPDATED VERSION
+// models/PropertyBatch.js - UPDATED VERSION WITH DISPLAY ORDERS
 const mongoose = require("mongoose");
 
 const propertyBatchSchema = new mongoose.Schema(
@@ -38,38 +38,42 @@ const propertyBatchSchema = new mongoose.Schema(
           required: true
         },
         // User views for this specific property in this batch
-// In propertyUnits.userViews array, add viewCount field
-userViews: [
-  {
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true
-    },
-    userName: { type: String },
-    userEmail: { type: String },
-    userType: { type: String },
-    userPhone: { type: String },
-    viewedAt: {
-      type: Date,
-      default: Date.now
-    },
-    viewDuration: {
-      type: Number,
-      default: 0
-    },
-    viewCount: {  // NEW: Track number of times user viewed in this session
-      type: Number,
-      default: 1
-    },
-    sessionId: { type: String },
-    source: {
-      type: String,
-      enum: ["direct", "search", "featured", "batch_view", "recommendation", "other"],
-      default: "direct"
-    }
-  }
-],
+        userViews: [
+          {
+            userId: {
+              type: mongoose.Schema.Types.ObjectId,
+              ref: "User",
+              required: true
+            },
+            userName: { type: String },
+            userEmail: { type: String },
+            userType: { type: String },
+            userPhone: { type: String },
+            viewedAt: {
+              type: Date,
+              default: Date.now
+            },
+            viewDuration: {
+              type: Number,
+              default: 0
+            },
+            viewCount: {
+              type: Number,
+              default: 1
+            },
+            sessionId: { type: String },
+            source: {
+              type: String,
+              enum: ["direct", "search", "featured", "batch_view", "recommendation", "other"],
+              default: "direct"
+            }
+          }
+        ],
+        // Display order for property within the batch
+        displayOrder: {
+          type: Number,
+          default: 0
+        },
         // Statistics for this property within the batch
         propertyStats: {
           totalViews: { type: Number, default: 0 },
@@ -94,6 +98,35 @@ userViews: [
       default: "location_based"
     },
     
+    // Display orders based on batch type
+    displayOrders: {
+      location_based_order: {
+        type: Number,
+        default: 0,
+        description: "Display order for location-based batches"
+      },
+      project_group_order: {
+        type: Number,
+        default: 0,
+        description: "Display order for project group batches"
+      },
+      featured_listings_order: {
+        type: Number,
+        default: 0,
+        description: "Display order for featured listings batches"
+      },
+      similar_properties_order: {
+        type: Number,
+        default: 0,
+        description: "Display order for similar properties batches"
+      },
+      comparison_group_order: {
+        type: Number,
+        default: 0,
+        description: "Display order for comparison group batches"
+      }
+    },
+    
     locationCoordinates: {
       latitude: Number,
       longitude: Number
@@ -108,11 +141,6 @@ userViews: [
     isActive: {
       type: Boolean,
       default: true
-    },
-    
-    displayOrder: {
-      type: Number,
-      default: 0
     },
     
     // Overall batch statistics
@@ -136,7 +164,25 @@ userViews: [
   }
 );
 
-// Virtuals
+// Virtual for getting current display order based on batch type
+propertyBatchSchema.virtual('currentDisplayOrder').get(function() {
+  switch(this.batchType) {
+    case 'location_based':
+      return this.displayOrders.location_based_order;
+    case 'project_group':
+      return this.displayOrders.project_group_order;
+    case 'featured_listings':
+      return this.displayOrders.featured_listings_order;
+    case 'similar_properties':
+      return this.displayOrders.similar_properties_order;
+    case 'comparison_group':
+      return this.displayOrders.comparison_group_order;
+    default:
+      return 0;
+  }
+});
+
+// Virtual for location summary
 propertyBatchSchema.virtual('locationSummary').get(function() {
   return `${this.locationName} (${this.stats.totalProperties} properties)`;
 });
@@ -165,18 +211,36 @@ propertyBatchSchema.pre('save', function(next) {
   // Update total properties count
   this.stats.totalProperties = this.propertyUnits.length;
   
+  // Set default display orders if not set
+  if (!this.displayOrders) {
+    this.displayOrders = {
+      location_based_order: 0,
+      project_group_order: 0,
+      featured_listings_order: 0,
+      similar_properties_order: 0,
+      comparison_group_order: 0
+    };
+  }
+  
   next();
 });
 
-// Method to add a property to batch
-propertyBatchSchema.methods.addPropertyToBatch = function(propertyId) {
+// Method to add a property to batch with display order
+propertyBatchSchema.methods.addPropertyToBatch = function(propertyId, displayOrder = null) {
   const existingProperty = this.propertyUnits.find(
     p => p.propertyId && p.propertyId.toString() === propertyId.toString()
   );
   
   if (!existingProperty) {
+    // If displayOrder not provided, set it to the next available order
+    if (displayOrder === null) {
+      const maxOrder = Math.max(...this.propertyUnits.map(p => p.displayOrder || 0), -1);
+      displayOrder = maxOrder + 1;
+    }
+    
     this.propertyUnits.push({
       propertyId: propertyId,
+      displayOrder: displayOrder,
       userViews: [],
       propertyStats: {
         totalViews: 0,
@@ -185,10 +249,92 @@ propertyBatchSchema.methods.addPropertyToBatch = function(propertyId) {
         avgViewDuration: 0
       }
     });
+    
+    // Sort property units by display order
+    this.propertyUnits.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+    
     this.stats.totalProperties = this.propertyUnits.length;
     return true;
   }
   return false;
+};
+
+// Method to update property display order within batch
+propertyBatchSchema.methods.updatePropertyDisplayOrder = function(propertyId, newDisplayOrder) {
+  const propertyIndex = this.propertyUnits.findIndex(
+    p => p.propertyId && p.propertyId.toString() === propertyId.toString()
+  );
+  
+  if (propertyIndex === -1) {
+    throw new Error("Property not found in batch");
+  }
+  
+  this.propertyUnits[propertyIndex].displayOrder = newDisplayOrder;
+  
+  // Re-sort property units
+  this.propertyUnits.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  
+  return true;
+};
+
+// Method to reorder all properties in batch
+propertyBatchSchema.methods.reorderProperties = function(orderArray) {
+  // orderArray should be array of {propertyId, displayOrder}
+  orderArray.forEach(order => {
+    const property = this.propertyUnits.find(
+      p => p.propertyId && p.propertyId.toString() === order.propertyId.toString()
+    );
+    if (property) {
+      property.displayOrder = order.displayOrder;
+    }
+  });
+  
+  // Sort property units by display order
+  this.propertyUnits.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  
+  return true;
+};
+
+// Method to set batch display order based on batch type
+propertyBatchSchema.methods.setDisplayOrder = function(order) {
+  switch(this.batchType) {
+    case 'location_based':
+      this.displayOrders.location_based_order = order;
+      break;
+    case 'project_group':
+      this.displayOrders.project_group_order = order;
+      break;
+    case 'featured_listings':
+      this.displayOrders.featured_listings_order = order;
+      break;
+    case 'similar_properties':
+      this.displayOrders.similar_properties_order = order;
+      break;
+    case 'comparison_group':
+      this.displayOrders.comparison_group_order = order;
+      break;
+    default:
+      throw new Error(`Unknown batch type: ${this.batchType}`);
+  }
+  return true;
+};
+
+// Method to get display order for current batch type
+propertyBatchSchema.methods.getDisplayOrder = function() {
+  switch(this.batchType) {
+    case 'location_based':
+      return this.displayOrders.location_based_order;
+    case 'project_group':
+      return this.displayOrders.project_group_order;
+    case 'featured_listings':
+      return this.displayOrders.featured_listings_order;
+    case 'similar_properties':
+      return this.displayOrders.similar_properties_order;
+    case 'comparison_group':
+      return this.displayOrders.comparison_group_order;
+    default:
+      return 0;
+  }
 };
 
 // Method to record a user view for a specific property in the batch
@@ -221,10 +367,11 @@ propertyBatchSchema.methods.recordUserView = async function(propertyId, userId, 
   );
   
   if (recentViewIndex !== -1) {
-    // Update existing view duration if longer
+    // Update existing view
     if (duration > property.userViews[recentViewIndex].viewDuration) {
       property.userViews[recentViewIndex].viewDuration = duration;
     }
+    property.userViews[recentViewIndex].viewCount += 1;
   } else {
     // Add new user view record
     property.userViews.push({
@@ -235,6 +382,7 @@ propertyBatchSchema.methods.recordUserView = async function(propertyId, userId, 
       userPhone: userData.phoneNumber || "",
       viewedAt: new Date(),
       viewDuration: duration,
+      viewCount: 1,
       sessionId: sessionId,
       source: source
     });
@@ -275,12 +423,16 @@ propertyBatchSchema.methods.recordUserView = async function(propertyId, userId, 
 propertyBatchSchema.methods.getAnalytics = function() {
   const propertiesData = this.propertyUnits.map(p => ({
     propertyId: p.propertyId,
+    displayOrder: p.displayOrder,
     totalViews: p.propertyStats?.totalViews || 0,
     uniqueViewers: p.propertyStats?.uniqueViewers || 0,
     avgViewDuration: p.propertyStats?.avgViewDuration || 0,
     lastViewedAt: p.propertyStats?.lastViewedAt,
     recentViews: (p.userViews || []).slice(-5).reverse()
   }));
+  
+  // Sort properties by display order
+  propertiesData.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
   
   // Get top users
   const userMap = new Map();
@@ -310,7 +462,9 @@ propertyBatchSchema.methods.getAnalytics = function() {
       id: this._id,
       name: this.batchName,
       code: this.batchCode,
-      location: this.locationName
+      location: this.locationName,
+      batchType: this.batchType,
+      displayOrder: this.getDisplayOrder()
     },
     summary: {
       totalProperties: this.stats.totalProperties,
@@ -318,10 +472,24 @@ propertyBatchSchema.methods.getAnalytics = function() {
       uniqueViewers: this.stats.uniqueViewers,
       lastViewedAt: this.stats.lastViewedAt
     },
-    topProperties: propertiesData.sort((a, b) => b.totalViews - a.totalViews).slice(0, 5),
+    topProperties: propertiesData.slice(0, 5),
     topUsers: topUsers,
     allProperties: propertiesData
   };
+};
+
+// Static method to get batches ordered by specific batch type
+propertyBatchSchema.statics.getOrderedByType = async function(batchType, limit = null) {
+  const orderField = `${batchType}_order`;
+  const query = { batchType: batchType, isActive: true };
+  
+  let findQuery = this.find(query).sort({ [`displayOrders.${orderField}`]: 1 });
+  
+  if (limit) {
+    findQuery = findQuery.limit(limit);
+  }
+  
+  return await findQuery;
 };
 
 // Indexes
@@ -332,5 +500,10 @@ propertyBatchSchema.index({ tags: 1 });
 propertyBatchSchema.index({ isActive: 1 });
 propertyBatchSchema.index({ batchType: 1 });
 propertyBatchSchema.index({ "stats.totalViews": -1 });
+propertyBatchSchema.index({ "displayOrders.location_based_order": 1 });
+propertyBatchSchema.index({ "displayOrders.project_group_order": 1 });
+propertyBatchSchema.index({ "displayOrders.featured_listings_order": 1 });
+propertyBatchSchema.index({ "displayOrders.similar_properties_order": 1 });
+propertyBatchSchema.index({ "displayOrders.comparison_group_order": 1 });
 
 module.exports = mongoose.model("PropertyBatch", propertyBatchSchema);

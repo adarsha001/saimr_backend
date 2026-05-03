@@ -132,6 +132,7 @@ app.use('/sitemap.xml', express.static('public/sitemap.xml'));
    ✅ ROUTES
 ========================= */
 app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api/batches', require('./routes/publicBatchRoutes'));
 app.use('/api/myproperties',require('./routes/Mypropertyroute'))
 app.use('/api/users', require('./routes/userRoutes'));
 app.use("/api/properties", propertyRoutes);

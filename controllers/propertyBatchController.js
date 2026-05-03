@@ -6,12 +6,10 @@ const cloudinary = require('cloudinary').v2;
 // @desc    Create a new property batch
 // @route   POST /api/property-batches
 // @access  Private/Admin only
-// @access  Private/Admin only
 exports.createBatch = async (req, res) => {
   try {
     console.log('User making request:', req.user);
     
-    // Check if user is authenticated
     if (!req.user || !req.user._id) {
       return res.status(401).json({
         success: false,
@@ -32,7 +30,6 @@ exports.createBatch = async (req, res) => {
       displayOrder = 0
     } = req.body;
 
-    // Check required fields
     if (!batchName || !locationName) {
       return res.status(400).json({
         success: false,
@@ -40,7 +37,6 @@ exports.createBatch = async (req, res) => {
       });
     }
 
-    // Validate batch type
     const validBatchTypes = [
       "location_based",
       "project_group",
@@ -61,7 +57,6 @@ exports.createBatch = async (req, res) => {
     
     if (req.file) {
       try {
-        const cloudinary = require('cloudinary').v2;
         const result = await cloudinary.uploader.upload(req.file.path, {
           folder: "property_batches",
         });
@@ -91,27 +86,22 @@ exports.createBatch = async (req, res) => {
       });
     }
 
-    // Parse property units - SUPPORT BOTH FORMATS
+    // Parse property units with display order
     let parsedPropertyUnits = [];
     let rawPropertyIds = [];
     
     if (propertyUnits && propertyUnits.length > 0) {
       try {
-        // Get property IDs first (support both old and new format)
         if (typeof propertyUnits === 'string') {
           rawPropertyIds = JSON.parse(propertyUnits);
         } else if (Array.isArray(propertyUnits)) {
-          // Check if propertyUnits is array of objects (new format) or array of strings (old format)
           if (propertyUnits.length > 0 && typeof propertyUnits[0] === 'object' && propertyUnits[0].propertyId) {
-            // Already in new format - extract propertyIds
             rawPropertyIds = propertyUnits.map(p => p.propertyId);
           } else {
-            // Old format - array of strings/ObjectIds
             rawPropertyIds = propertyUnits;
           }
         }
         
-        // Validate property units exist
         if (rawPropertyIds.length > 0) {
           const validUnits = await PropertyUnit.find({ 
             _id: { $in: rawPropertyIds } 
@@ -120,7 +110,6 @@ exports.createBatch = async (req, res) => {
           const validUnitIds = validUnits.map(unit => unit._id.toString());
           const validUnitsMap = new Map(validUnits.map(unit => [unit._id.toString(), unit]));
           
-          // Check for invalid property units
           const invalidUnits = rawPropertyIds.filter(unitId => 
             !validUnitIds.includes(unitId.toString())
           );
@@ -133,11 +122,12 @@ exports.createBatch = async (req, res) => {
             });
           }
           
-          // Create the new propertyUnits structure with userViews array
-          parsedPropertyUnits = rawPropertyIds.map(propertyId => {
+          // Create property units with display order
+          parsedPropertyUnits = rawPropertyIds.map((propertyId, index) => {
             const property = validUnitsMap.get(propertyId.toString());
             return {
               propertyId: propertyId,
+              displayOrder: index, // Set initial display order based on array index
               userViews: [],
               propertyStats: {
                 totalViews: 0,
@@ -149,7 +139,6 @@ exports.createBatch = async (req, res) => {
             };
           });
         }
-        
       } catch (parseError) {
         console.error('Property units parse error:', parseError);
         return res.status(400).json({
@@ -159,7 +148,7 @@ exports.createBatch = async (req, res) => {
       }
     }
 
-    // Parse location coordinates if provided
+    // Parse location coordinates
     let parsedCoordinates = {};
     if (locationCoordinates) {
       try {
@@ -168,11 +157,10 @@ exports.createBatch = async (req, res) => {
           : locationCoordinates;
       } catch (parseError) {
         console.error('Coordinates parse error:', parseError);
-        // Continue with empty coordinates
       }
     }
 
-    // Parse tags if they come as string
+    // Parse tags
     let parsedTags = [];
     if (tags && tags.length > 0) {
       try {
@@ -183,7 +171,7 @@ exports.createBatch = async (req, res) => {
       }
     }
 
-    // Calculate batch statistics from property units
+    // Calculate batch statistics
     let totalPrice = 0;
     let minPrice = Infinity;
     let maxPrice = -Infinity;
@@ -195,7 +183,6 @@ exports.createBatch = async (req, res) => {
         .select('unitTypes.price.amount propertyType');
       
       properties.forEach(property => {
-        // Get price from first unit type or default to 0
         let price = 0;
         if (property.unitTypes && property.unitTypes.length > 0) {
           price = property.unitTypes[0].price?.amount || 0;
@@ -215,7 +202,19 @@ exports.createBatch = async (req, res) => {
     if (minPrice === Infinity) minPrice = 0;
     if (maxPrice === -Infinity) maxPrice = 0;
 
-    // Create new batch with the correct structure
+    // Create display orders object
+    const displayOrders = {
+      location_based_order: 0,
+      project_group_order: 0,
+      featured_listings_order: 0,
+      similar_properties_order: 0,
+      comparison_group_order: 0
+    };
+    
+    // Set the display order for the specific batch type
+    displayOrders[`${batchType}_order`] = parseInt(displayOrder) || 0;
+
+    // Create new batch
     const batch = new PropertyBatch({
       batchName: batchName.trim(),
       locationName: locationName.trim(),
@@ -223,10 +222,10 @@ exports.createBatch = async (req, res) => {
       image: uploadedImage,
       propertyUnits: parsedPropertyUnits,
       batchType,
+      displayOrders,
       locationCoordinates: parsedCoordinates,
       tags: parsedTags,
       isActive: isActive === 'true' || isActive === true,
-      displayOrder: parseInt(displayOrder) || 0,
       createdBy: req.user._id,
       stats: {
         totalProperties: parsedPropertyUnits.length,
@@ -240,10 +239,8 @@ exports.createBatch = async (req, res) => {
       }
     });
 
-    // Save the batch
     await batch.save();
     
-    // Populate references
     await batch.populate('createdBy', 'name email username');
     await batch.populate('propertyUnits.propertyId', 'title propertyType city price images');
 
@@ -256,7 +253,6 @@ exports.createBatch = async (req, res) => {
   } catch (error) {
     console.error('Error creating batch:', error);
     
-    // Handle duplicate batch code error
     if (error.code === 11000 && error.keyPattern && error.keyPattern.batchCode) {
       return res.status(400).json({
         success: false,
@@ -264,7 +260,6 @@ exports.createBatch = async (req, res) => {
       });
     }
     
-    // Handle validation errors
     if (error.name === 'ValidationError') {
       const errors = Object.values(error.errors).map(err => err.message);
       return res.status(400).json({
@@ -280,6 +275,7 @@ exports.createBatch = async (req, res) => {
     });
   }
 };
+
 // @desc    Get all property batches
 // @route   GET /api/property-batches
 // @access  Public
@@ -292,42 +288,36 @@ exports.getAllBatches = async (req, res) => {
       batchType, 
       tags,
       search,
-      isActive = true, // Default to active only for public access
+      isActive = true,
       sortBy = 'createdAt',
       sortOrder = 'desc'
     } = req.query;
     
     const query = {};
     
-    // Check if user is authenticated and admin
     const isAdminUser = req.user && (
       req.user?.isAdmin || 
       req.user?.userType === 'superadmin' || 
       req.user?.userType === 'admin'
     );
     
-    // For public access (non-admin users), only show active batches
     if (!isAdminUser) {
       query.isActive = isActive === 'true' || isActive === true;
     }
     
-    // Filter by location
     if (location) {
       query.locationName = new RegExp(location, 'i');
     }
     
-    // Filter by batch type
     if (batchType) {
       query.batchType = batchType;
     }
     
-    // Filter by tags
     if (tags) {
       const tagsArray = tags.split(',');
       query.tags = { $in: tagsArray };
     }
     
-    // Search across multiple fields
     if (search) {
       query.$or = [
         { batchName: new RegExp(search, 'i') },
@@ -337,13 +327,10 @@ exports.getAllBatches = async (req, res) => {
       ];
     }
     
-    // If user is not admin and is authenticated, they can see their own batches
-    // plus public active batches
     if (req.user && !isAdminUser) {
-      // Show user's own batches (active or inactive) AND public active batches
       query.$or = [
-        { createdBy: req.user._id }, // User's own batches
-        { isActive: true } // Public active batches
+        { createdBy: req.user._id },
+        { isActive: true }
       ];
     }
     
@@ -351,21 +338,30 @@ exports.getAllBatches = async (req, res) => {
     const limitInt = parseInt(limit);
     const skip = (pageInt - 1) * limitInt;
     
-    // Sort configuration
-    const sort = {};
-    sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+    // Handle sorting by display order for specific batch types
+    let sort = {};
+    if (sortBy === 'displayOrder' && batchType) {
+      sort[`displayOrders.${batchType}_order`] = sortOrder === 'asc' ? 1 : -1;
+    } else {
+      sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+    }
     
-    // Execute query with pagination
     const batches = await PropertyBatch.find(query)
       .populate('createdBy', 'name email username')
       .populate({
-        path: 'propertyUnits',
-        select: 'title price images city specifications.bedrooms specifications.bathrooms availability isFeatured',
-        options: { limit: 5 } // Limit populated units for performance
+        path: 'propertyUnits.propertyId',
+        select: 'title price images city specifications.bedrooms specifications.bathrooms availability isFeatured'
       })
       .sort(sort)
       .skip(skip)
       .limit(limitInt);
+    
+    // Sort properties within each batch by displayOrder
+    batches.forEach(batch => {
+      if (batch.propertyUnits && batch.propertyUnits.length > 0) {
+        batch.propertyUnits.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+      }
+    });
     
     const total = await PropertyBatch.countDocuments(query);
     
@@ -405,8 +401,8 @@ exports.getBatch = async (req, res) => {
     const batch = await PropertyBatch.findById(id)
       .populate('createdBy', 'name email username')
       .populate({
-        path: 'propertyUnits',
-        select: '-createdBy -__v', // Exclude sensitive/unnecessary fields
+        path: 'propertyUnits.propertyId',
+        select: '-createdBy -__v',
         populate: {
           path: 'createdBy',
           select: 'name email phoneNumber'
@@ -420,7 +416,11 @@ exports.getBatch = async (req, res) => {
       });
     }
     
-    // Check access permissions
+    // Sort properties by display order
+    if (batch.propertyUnits && batch.propertyUnits.length > 0) {
+      batch.propertyUnits.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+    }
+    
     const isAdminUser = req.user && (
       req.user?.isAdmin || 
       req.user?.userType === 'superadmin' || 
@@ -429,9 +429,6 @@ exports.getBatch = async (req, res) => {
     
     const isOwner = req.user && batch.createdBy._id.toString() === req.user._id.toString();
     
-    // Public users can only view active batches
-    // Authenticated non-admin users can view active batches or their own batches
-    // Admin users can view everything
     if (!batch.isActive) {
       if (!req.user) {
         return res.status(403).json({
@@ -464,10 +461,19 @@ exports.getBatch = async (req, res) => {
 // @desc    Update property batch
 // @route   PUT /api/property-batches/:id
 // @access  Private/Admin only
+// In propertyBatchController.js - Update the updateBatch function
+
+// Update the updateBatch function in your backend
+
 exports.updateBatch = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
+    
+    console.log('=== BACKEND UPDATE START ===');
+    console.log('Batch ID:', id);
+    console.log('Received updates:', updates);
+    console.log('PropertyUnits raw:', updates.propertyUnits);
     
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -476,7 +482,6 @@ exports.updateBatch = async (req, res) => {
       });
     }
     
-    // Find the batch
     const batch = await PropertyBatch.findById(id);
     if (!batch) {
       return res.status(404).json({
@@ -485,7 +490,6 @@ exports.updateBatch = async (req, res) => {
       });
     }
     
-    // Check if user is admin (owner check removed since only admin can update)
     const isAdminUser = req.user && (
       req.user?.isAdmin || 
       req.user?.userType === 'superadmin' || 
@@ -502,12 +506,10 @@ exports.updateBatch = async (req, res) => {
     // Handle image update
     if (req.file) {
       try {
-        // Delete old image from Cloudinary if exists
         if (batch.image && batch.image.public_id) {
           await cloudinary.uploader.destroy(batch.image.public_id);
         }
         
-        // Upload new image
         const result = await cloudinary.uploader.upload(req.file.path, {
           folder: "property_batches",
         });
@@ -525,7 +527,6 @@ exports.updateBatch = async (req, res) => {
         });
       }
     } else if (updates.image && updates.image.url && !updates.image.public_id) {
-      // If updating image URL without file, keep existing public_id if not provided
       updates.image = {
         url: updates.image.url,
         public_id: batch.image?.public_id || '',
@@ -536,51 +537,157 @@ exports.updateBatch = async (req, res) => {
     // Handle property units update
     if (updates.propertyUnits) {
       try {
-        let parsedUnits = updates.propertyUnits;
-        if (typeof parsedUnits === 'string') {
-          parsedUnits = JSON.parse(parsedUnits);
+        // Parse propertyUnits if it's a string
+        let propertyUnitIds = updates.propertyUnits;
+        if (typeof propertyUnitIds === 'string') {
+          propertyUnitIds = JSON.parse(propertyUnitIds);
         }
         
-        // Validate new property units (admin can access all units)
-        if (parsedUnits.length > 0) {
+        console.log('Parsed propertyUnitIds:', propertyUnitIds);
+        
+        // Ensure it's an array
+        if (!Array.isArray(propertyUnitIds)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Property units must be an array'
+          });
+        }
+        
+        // Clean and validate IDs
+        const cleanIds = propertyUnitIds
+          .map(id => {
+            if (typeof id === 'object' && id !== null) {
+              return id.propertyId || id._id || null;
+            }
+            return id;
+          })
+          .filter(id => id && typeof id === 'string');
+        
+        console.log('Clean IDs:', cleanIds);
+        
+        if (cleanIds.length > 0) {
+          // Verify these property units exist
           const validUnits = await PropertyUnit.find({ 
-            _id: { $in: parsedUnits } 
+            _id: { $in: cleanIds } 
           }).select('_id');
           
           const validUnitIds = validUnits.map(unit => unit._id.toString());
           
-          // Check if any invalid property units
-          const invalidUnits = parsedUnits.filter(unitId => 
-            !validUnitIds.includes(unitId.toString())
-          );
+          const finalValidIds = cleanIds.filter(id => validUnitIds.includes(id.toString()));
           
-          if (invalidUnits.length > 0) {
-            return res.status(400).json({
-              success: false,
-              message: `Invalid property units: ${invalidUnits.join(', ')}`
+          console.log('Final valid IDs:', finalValidIds);
+          
+          // Preserve existing display orders
+          const existingPropertyMap = new Map();
+          if (batch.propertyUnits && Array.isArray(batch.propertyUnits)) {
+            batch.propertyUnits.forEach(p => {
+              if (p.propertyId) {
+                existingPropertyMap.set(p.propertyId.toString(), {
+                  displayOrder: p.displayOrder,
+                  userViews: p.userViews || [],
+                  propertyStats: p.propertyStats || {
+                    totalViews: 0, uniqueViewers: 0, totalViewDuration: 0, avgViewDuration: 0
+                  }
+                });
+              }
             });
           }
+          
+          // Create new property units array
+          updates.propertyUnits = finalValidIds.map((propertyId, index) => {
+            const existing = existingPropertyMap.get(propertyId.toString());
+            return {
+              propertyId: propertyId,
+              displayOrder: existing?.displayOrder ?? index,
+              userViews: existing?.userViews || [],
+              propertyStats: existing?.propertyStats || {
+                totalViews: 0, uniqueViewers: 0, totalViewDuration: 0, avgViewDuration: 0
+              }
+            };
+          });
+        } else {
+          updates.propertyUnits = [];
         }
         
-        updates.propertyUnits = parsedUnits;
+        console.log('Final propertyUnits to save:', updates.propertyUnits);
       } catch (parseError) {
+        console.error('Error parsing property units:', parseError);
         return res.status(400).json({
           success: false,
-          message: 'Invalid property units format'
+          message: 'Invalid property units format: ' + parseError.message
         });
       }
     }
     
-    // Update the batch
+    // Handle display order update
+    if (updates.displayOrder !== undefined) {
+      if (!batch.displayOrders) {
+        batch.displayOrders = {
+          location_based_order: 0,
+          project_group_order: 0,
+          featured_listings_order: 0,
+          similar_properties_order: 0,
+          comparison_group_order: 0
+        };
+      }
+      batch.displayOrders[`${batch.batchType}_order`] = parseInt(updates.displayOrder);
+      delete updates.displayOrder;
+    }
+    
+    // Update other fields
     Object.keys(updates).forEach(key => {
-      batch[key] = updates[key];
+      if (key !== 'propertyUnits') {
+        batch[key] = updates[key];
+      }
     });
+    
+    if (updates.propertyUnits) {
+      batch.propertyUnits = updates.propertyUnits;
+    }
+    
+    // Update stats
+    if (batch.propertyUnits && batch.propertyUnits.length > 0) {
+      const propertyIds = batch.propertyUnits.map(p => p.propertyId);
+      const properties = await PropertyUnit.find({ _id: { $in: propertyIds } })
+        .select('unitTypes.price.amount propertyType');
+      
+      let totalPrice = 0;
+      let minPrice = Infinity;
+      let maxPrice = -Infinity;
+      const propertyTypesSet = new Set();
+      
+      properties.forEach(property => {
+        let price = 0;
+        if (property.unitTypes && property.unitTypes.length > 0) {
+          price = property.unitTypes[0].price?.amount || 0;
+        }
+        
+        totalPrice += price;
+        if (price < minPrice) minPrice = price;
+        if (price > maxPrice) maxPrice = price;
+        
+        if (property.propertyType) {
+          propertyTypesSet.add(property.propertyType);
+        }
+      });
+      
+      batch.stats = {
+        ...batch.stats,
+        avgPrice: batch.propertyUnits.length > 0 ? totalPrice / batch.propertyUnits.length : 0,
+        minPrice: minPrice === Infinity ? 0 : minPrice,
+        maxPrice: maxPrice === -Infinity ? 0 : maxPrice,
+        propertyTypes: Array.from(propertyTypesSet),
+        totalProperties: batch.propertyUnits.length
+      };
+    }
     
     batch.updatedAt = Date.now();
     await batch.save();
     
-    // Populate updated data
     await batch.populate('createdBy', 'name email username');
+    await batch.populate('propertyUnits.propertyId', 'title propertyType city price images');
+    
+    console.log('=== BACKEND UPDATE SUCCESS ===');
     
     res.json({
       success: true,
@@ -591,7 +698,7 @@ exports.updateBatch = async (req, res) => {
     console.error('Error updating batch:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error while updating batch'
+      message: 'Server error while updating batch: ' + error.message
     });
   }
 };
@@ -618,7 +725,6 @@ exports.deleteBatch = async (req, res) => {
       });
     }
     
-    // Check if user is admin (owner check removed since only admin can delete)
     const isAdminUser = req.user && (
       req.user?.isAdmin || 
       req.user?.userType === 'superadmin' || 
@@ -632,17 +738,14 @@ exports.deleteBatch = async (req, res) => {
       });
     }
     
-    // Delete image from Cloudinary if exists
     if (batch.image && batch.image.public_id) {
       try {
         await cloudinary.uploader.destroy(batch.image.public_id);
       } catch (cloudinaryError) {
         console.error('Error deleting image from Cloudinary:', cloudinaryError);
-        // Continue with deletion even if image deletion fails
       }
     }
     
-    // Delete the batch
     await PropertyBatch.findByIdAndDelete(id);
     
     res.status(200).json({
@@ -665,7 +768,7 @@ exports.deleteBatch = async (req, res) => {
 exports.addPropertyUnit = async (req, res) => {
   try {
     const { id } = req.params;
-    const { propertyUnitId } = req.body;
+    const { propertyUnitId, displayOrder } = req.body;
     
     if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(propertyUnitId)) {
       return res.status(400).json({
@@ -682,7 +785,6 @@ exports.addPropertyUnit = async (req, res) => {
       });
     }
     
-    // Check if user is admin (owner check removed since only admin can modify)
     const isAdminUser = req.user && (
       req.user?.isAdmin || 
       req.user?.userType === 'superadmin' || 
@@ -696,7 +798,6 @@ exports.addPropertyUnit = async (req, res) => {
       });
     }
     
-    // Check if property unit exists (admin can access all units)
     const propertyUnit = await PropertyUnit.findById(propertyUnitId);
     if (!propertyUnit) {
       return res.status(404).json({
@@ -705,8 +806,7 @@ exports.addPropertyUnit = async (req, res) => {
       });
     }
     
-    // Add property unit to batch
-    const added = batch.addPropertyUnit(propertyUnitId);
+    const added = batch.addPropertyToBatch(propertyUnitId, displayOrder);
     if (!added) {
       return res.status(400).json({
         success: false,
@@ -714,7 +814,40 @@ exports.addPropertyUnit = async (req, res) => {
       });
     }
     
+    // Update batch stats
+    const propertyIds = batch.propertyUnits.map(p => p.propertyId);
+    const properties = await PropertyUnit.find({ _id: { $in: propertyIds } })
+      .select('unitTypes.price.amount propertyType');
+    
+    let totalPrice = 0;
+    let minPrice = Infinity;
+    let maxPrice = -Infinity;
+    const propertyTypesSet = new Set();
+    
+    properties.forEach(property => {
+      let price = 0;
+      if (property.unitTypes && property.unitTypes.length > 0) {
+        price = property.unitTypes[0].price?.amount || 0;
+      }
+      
+      totalPrice += price;
+      if (price < minPrice) minPrice = price;
+      if (price > maxPrice) maxPrice = price;
+      
+      if (property.propertyType) {
+        propertyTypesSet.add(property.propertyType);
+      }
+    });
+    
+    batch.stats.avgPrice = batch.propertyUnits.length > 0 ? totalPrice / batch.propertyUnits.length : 0;
+    batch.stats.minPrice = minPrice === Infinity ? 0 : minPrice;
+    batch.stats.maxPrice = maxPrice === -Infinity ? 0 : maxPrice;
+    batch.stats.propertyTypes = Array.from(propertyTypesSet);
+    batch.stats.totalProperties = batch.propertyUnits.length;
+    
     await batch.save();
+    
+    await batch.populate('propertyUnits.propertyId', 'title propertyType city price images');
     
     res.json({
       success: true,
@@ -753,7 +886,6 @@ exports.removePropertyUnit = async (req, res) => {
       });
     }
     
-    // Check if user is admin (owner check removed since only admin can modify)
     const isAdminUser = req.user && (
       req.user?.isAdmin || 
       req.user?.userType === 'superadmin' || 
@@ -767,15 +899,20 @@ exports.removePropertyUnit = async (req, res) => {
       });
     }
     
-    // Remove property unit from batch
-    const removed = batch.removePropertyUnit(propertyUnitId);
-    if (!removed) {
+    const initialLength = batch.propertyUnits.length;
+    batch.propertyUnits = batch.propertyUnits.filter(
+      p => p.propertyId.toString() !== propertyUnitId.toString()
+    );
+    
+    if (batch.propertyUnits.length === initialLength) {
       return res.status(400).json({
         success: false,
         message: 'Property unit not found in batch'
       });
     }
     
+    // Update stats
+    batch.stats.totalProperties = batch.propertyUnits.length;
     await batch.save();
     
     res.json({
@@ -792,6 +929,337 @@ exports.removePropertyUnit = async (req, res) => {
   }
 };
 
+// @desc    Reorder properties in batch
+// @route   PUT /api/property-batches/:id/reorder-properties
+// @access  Private/Admin only
+exports.reorderProperties = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { orderArray } = req.body;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid batch ID'
+      });
+    }
+    
+    if (!orderArray || !Array.isArray(orderArray)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Order array is required'
+      });
+    }
+    
+    const batch = await PropertyBatch.findById(id);
+    if (!batch) {
+      return res.status(404).json({
+        success: false,
+        message: 'Property batch not found'
+      });
+    }
+    
+    const isAdminUser = req.user && (
+      req.user?.isAdmin || 
+      req.user?.userType === 'superadmin' || 
+      req.user?.userType === 'admin'
+    );
+    
+    if (!isAdminUser) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to modify this batch. Admin access required.'
+      });
+    }
+    
+    batch.reorderProperties(orderArray);
+    await batch.save();
+    
+    res.json({
+      success: true,
+      data: batch,
+      message: 'Properties reordered successfully'
+    });
+  } catch (error) {
+    console.error('Error reordering properties:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while reordering properties'
+    });
+  }
+};
+
+// @desc    Update individual property display order
+// @route   PATCH /api/property-batches/:id/update-property-order/:propertyId
+// @access  Private/Admin only
+exports.updatePropertyDisplayOrder = async (req, res) => {
+  try {
+    const { id, propertyId } = req.params;
+    const { displayOrder } = req.body;
+    
+    if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(propertyId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid batch ID or property ID'
+      });
+    }
+    
+    if (displayOrder === undefined || typeof displayOrder !== 'number') {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid display order number is required'
+      });
+    }
+    
+    const batch = await PropertyBatch.findById(id);
+    if (!batch) {
+      return res.status(404).json({
+        success: false,
+        message: 'Property batch not found'
+      });
+    }
+    
+    const isAdminUser = req.user && (
+      req.user?.isAdmin || 
+      req.user?.userType === 'superadmin' || 
+      req.user?.userType === 'admin'
+    );
+    
+    if (!isAdminUser) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to modify this batch. Admin access required.'
+      });
+    }
+    
+    batch.updatePropertyDisplayOrder(propertyId, displayOrder);
+    await batch.save();
+    
+    res.json({
+      success: true,
+      data: batch,
+      message: 'Property display order updated successfully'
+    });
+  } catch (error) {
+    console.error('Error updating property display order:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error while updating property display order'
+    });
+  }
+};
+
+// @desc    Set batch display order based on its type
+// @route   PATCH /api/property-batches/:id/set-display-order
+// @access  Private/Admin only
+exports.setBatchDisplayOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { order } = req.body;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid batch ID'
+      });
+    }
+    
+    if (order === undefined || typeof order !== 'number') {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid order number is required'
+      });
+    }
+    
+    const batch = await PropertyBatch.findById(id);
+    if (!batch) {
+      return res.status(404).json({
+        success: false,
+        message: 'Property batch not found'
+      });
+    }
+    
+    const isAdminUser = req.user && (
+      req.user?.isAdmin || 
+      req.user?.userType === 'superadmin' || 
+      req.user?.userType === 'admin'
+    );
+    
+    if (!isAdminUser) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to modify this batch. Admin access required.'
+      });
+    }
+    
+    batch.setDisplayOrder(order);
+    await batch.save();
+    
+    res.json({
+      success: true,
+      data: {
+        batchId: batch._id,
+        batchType: batch.batchType,
+        displayOrder: batch.getDisplayOrder()
+      },
+      message: `Batch display order set to ${order} for type ${batch.batchType}`
+    });
+  } catch (error) {
+    console.error('Error setting batch display order:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error while setting batch display order'
+    });
+  }
+};
+
+// @desc    Get batches ordered by specific type
+// @route   GET /api/property-batches/type/:batchType/ordered
+// @access  Public
+exports.getBatchesOrderedByType = async (req, res) => {
+  try {
+    const { batchType } = req.params;
+    const { limit } = req.query;
+    
+    const validBatchTypes = [
+      "location_based",
+      "project_group",
+      "featured_listings",
+      "similar_properties",
+      "comparison_group"
+    ];
+    
+    if (!validBatchTypes.includes(batchType)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid batch type. Must be one of: ${validBatchTypes.join(', ')}`
+      });
+    }
+    
+    const batches = await PropertyBatch.getOrderedByType(batchType, limit ? parseInt(limit) : null);
+    
+    res.json({
+      success: true,
+      count: batches.length,
+      data: batches
+    });
+  } catch (error) {
+    console.error('Error fetching ordered batches:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching ordered batches'
+    });
+  }
+};
+
+// @desc    Get batch analytics
+// @route   GET /api/property-batches/:id/analytics
+// @access  Private/Admin only
+exports.getBatchAnalytics = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid batch ID'
+      });
+    }
+    
+    const batch = await PropertyBatch.findById(id);
+    if (!batch) {
+      return res.status(404).json({
+        success: false,
+        message: 'Property batch not found'
+      });
+    }
+    
+    const isAdminUser = req.user && (
+      req.user?.isAdmin || 
+      req.user?.userType === 'superadmin' || 
+      req.user?.userType === 'admin'
+    );
+    
+    if (!isAdminUser) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to view analytics. Admin access required.'
+      });
+    }
+    
+    const analytics = batch.getAnalytics();
+    
+    res.json({
+      success: true,
+      data: analytics
+    });
+  } catch (error) {
+    console.error('Error fetching batch analytics:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching batch analytics'
+    });
+  }
+};
+
+// @desc    Record user view for property in batch
+// @route   POST /api/property-batches/:id/record-view
+// @access  Private
+exports.recordUserView = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { propertyId, duration, sessionId, source } = req.body;
+    
+    if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(propertyId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid batch ID or property ID'
+      });
+    }
+    
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
+      });
+    }
+    
+    const batch = await PropertyBatch.findById(id);
+    if (!batch) {
+      return res.status(404).json({
+        success: false,
+        message: 'Property batch not found'
+      });
+    }
+    
+    const userData = {
+      name: req.user.name || req.user.username,
+      email: req.user.email,
+      userType: req.user.userType || 'user',
+      phoneNumber: req.user.phoneNumber
+    };
+    
+    const result = await batch.recordUserView(
+      propertyId,
+      req.user._id,
+      userData,
+      { duration: duration || 0, sessionId, source }
+    );
+    
+    res.json({
+      success: true,
+      data: result,
+      message: 'User view recorded successfully'
+    });
+  } catch (error) {
+    console.error('Error recording user view:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error while recording user view'
+    });
+  }
+};
+
 // @desc    Get batches by location
 // @route   GET /api/property-batches/location/:location
 // @access  Public
@@ -802,17 +1270,23 @@ exports.getBatchesByLocation = async (req, res) => {
     
     const batches = await PropertyBatch.find({
       locationName: new RegExp(location, 'i'),
-      isActive: true // Only show active batches for public access
+      isActive: true
     })
     .populate('createdBy', 'name email')
     .populate({
-      path: 'propertyUnits',
+      path: 'propertyUnits.propertyId',
       select: 'title price images city specifications.bedrooms',
-      match: { approvalStatus: 'approved', availability: 'available' },
-      options: { limit: 3 }
+      match: { approvalStatus: 'approved', availability: 'available' }
     })
     .limit(parseInt(limit))
-    .sort({ displayOrder: 1, createdAt: -1 });
+    .sort({ [`displayOrders.${req.query.batchType || 'location_based'}_order`]: 1, createdAt: -1 });
+    
+    // Sort properties within each batch by displayOrder
+    batches.forEach(batch => {
+      if (batch.propertyUnits && batch.propertyUnits.length > 0) {
+        batch.propertyUnits.sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+      }
+    });
     
     res.json({
       success: true,
@@ -849,7 +1323,6 @@ exports.toggleActiveStatus = async (req, res) => {
       });
     }
     
-    // Check if user is admin (owner check removed since only admin can toggle)
     const isAdminUser = req.user && (
       req.user?.isAdmin || 
       req.user?.userType === 'superadmin' || 
@@ -863,7 +1336,6 @@ exports.toggleActiveStatus = async (req, res) => {
       });
     }
     
-    // Toggle active status
     batch.isActive = !batch.isActive;
     await batch.save();
     

@@ -18,6 +18,9 @@ router.route('/:id')
 // Public route for location-based access
 router.get('/location/:location', propertyBatchController.getBatchesByLocation);
 
+// Get batches ordered by specific type
+router.get('/type/:batchType/ordered', propertyBatchController.getBatchesOrderedByType);
+
 // ============ ADMIN ONLY ROUTES (Create/Update/Delete) ============
 router.route('/')
   .post(
@@ -55,12 +58,49 @@ router.route('/:id/remove-unit')
     propertyBatchController.removePropertyUnit
   );
 
+// Property display order management
+router.route('/:id/reorder-properties')
+  .put(
+    protect,
+    authorize('admin', 'superadmin'),
+    propertyBatchController.reorderProperties
+  );
+
+router.route('/:id/update-property-order/:propertyId')
+  .patch(
+    protect,
+    authorize('admin', 'superadmin'),
+    propertyBatchController.updatePropertyDisplayOrder
+  );
+
+// ============ BATCH DISPLAY ORDER MANAGEMENT ============
+router.route('/:id/set-display-order')
+  .patch(
+    protect,
+    authorize('admin', 'superadmin'),
+    propertyBatchController.setBatchDisplayOrder
+  );
+
 // ============ STATUS MANAGEMENT ROUTES ============
 router.route('/:id/toggle-active')
   .patch(
     protect,
     authorize('admin', 'superadmin'),
     propertyBatchController.toggleActiveStatus
+  );
+
+// ============ ANALYTICS ROUTES ============
+router.route('/:id/analytics')
+  .get(
+    protect,
+    authorize('admin', 'superadmin'),
+    propertyBatchController.getBatchAnalytics
+  );
+
+router.route('/:id/record-view')
+  .post(
+    protect,
+    propertyBatchController.recordUserView
   );
 
 // ============ ADMIN SPECIAL ROUTES ============
