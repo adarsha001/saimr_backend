@@ -10,8 +10,19 @@ const {
   deleteUserAccount,
   getLikedProperties,
   getPostedProperties,
-  uploadAvatar
+  uploadAvatar,
+  applyForAgentStatus,
+  checkAgentStatus,changePassword,
 } = require('../controllers/userController');
+const {
+  getAgentProfile,
+  getReferralInfo,
+  scheduleAppointment,
+  getAppointments,
+  updateAppointmentStatus,
+  getReferralStats,
+  getDashboardStats
+} = require('../controllers/agentController');
 
 const {
   likeProperty,
@@ -23,14 +34,27 @@ const {
 // User profile routes
 router.get('/profile', protect, getUserProfile);
 router.put('/profile', protect, updateUserProfile);
+
+router.post('/change-password', protect, changePassword);
 router.delete('/account', protect, deleteUserAccount);
 
 // User enquiries routes
 router.get('/my-enquiries', protect, getUserEnquiries);
-
+router.post('/apply-agent', protect, applyForAgentStatus);
+router.get('/check-agent-status', protect, checkAgentStatus );
 // User properties routes
 
+router.get('/profile', getAgentProfile);
+router.get('/dashboard', getDashboardStats);
 
+// Referral routes
+router.get('/referral-info', getReferralInfo);
+router.get('/referral-stats', getReferralStats);
+
+// Appointment routes
+router.post('/appointments', scheduleAppointment);
+router.get('/appointments', getAppointments);
+router.put('/appointments/:appointmentId', updateAppointmentStatus);
 // Avatar upload route
 router.post('/upload-avatar', protect, upload.single('avatar'), uploadAvatar);
 

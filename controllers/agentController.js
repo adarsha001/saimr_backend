@@ -1259,3 +1259,600 @@ exports.getAgentProperties = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+
+
+
+// controllers/agentController.js
+
+// @desc    Apply for agent status (called when user selects agent type)
+// @route   POST /api/users/apply-agent
+// @access  Private
+exports.applyForAgentStatus = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { referralCode } = req.body;
+
+    console.log('Applying for agent - User ID:', userId);
+    console.log('Referral code provided:', referralCode);
+
+    // Get user details
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log('User not found:', userId);
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    console.log('User found:', user.email, 'User type:', user.userType);
+
+    // Check if user already has an agent profile
+    const existingAgent = await Agent.findOne({ user: userId });
+    if (existingAgent) {
+      console.log('Existing agent profile found:', existingAgent.agentId);
+      return res.status(400).json({
+        success: false,
+        message: 'You already have an agent profile',
+        data: {
+          agentId: existingAgent.agentId,
+          referralCode: existingAgent.referralCode
+        }
+      });
+    }
+
+    // Check if user type is agent
+    if (user.userType !== 'agent') {
+      console.log('User type is not agent:', user.userType);
+      return res.status(400).json({
+        success: false,
+        message: 'Please set your user type to "agent" first'
+      });
+    }
+
+    // Process referral if provided (OPTIONAL - no error if invalid)
+    let referredByAgent = null;
+    let referringAgentData = null;
+    
+    if (referralCode && referralCode.trim() !== '') {
+      console.log('Looking for referring agent with code:', referralCode);
+      const referringAgent = await Agent.findOne({ referralCode: referralCode })
+        .populate('user', 'name email');
+      
+      if (referringAgent) {
+        referredByAgent = referringAgent._id;
+        referringAgentData = {
+          name: referringAgent.name,
+          agentId: referringAgent.agentId,
+          referralCode: referringAgent.referralCode
+        };
+        
+        console.log('Referring agent found:', referringAgent.agentId);
+        
+        // Add referral to the referring agent
+        await referringAgent.addReferral(userId, null);
+      } else {
+        console.log('Invalid referral code provided, continuing without referral');
+        // Invalid referral code - just ignore and continue
+      }
+    }
+
+    // Create agent profile - let the pre-save hook generate agentId and referralCode
+    console.log('Creating agent profile for user:', userId);
+    
+    const agentData = {
+      user: userId,
+      name: user.name,
+      email: user.gmail,
+      phoneNumber: user.phoneNumber,
+      referredBy: referredByAgent,
+      isActive: true,
+      company: user.company || '',
+      officeAddress: user.officeAddress || {},
+      specializationAreas: user.specialization || []
+    };
+
+    console.log('Agent data being saved:', JSON.stringify(agentData, null, 2));
+
+    const agent = await Agent.create(agentData);
+    
+    console.log('Agent created successfully:', {
+      id: agent._id,
+      agentId: agent.agentId,
+      referralCode: agent.referralCode
+    });
+
+    // Update user with agent profile reference
+    user.agentProfile = agent._id;
+    user.agentApproval = {
+      status: 'approved',
+      appliedAt: new Date(),
+      reviewedAt: new Date()
+    };
+    await user.save();
+
+    console.log('User updated with agent profile reference');
+
+    // Return only the agent data - NO URL LINKS
+    res.status(201).json({
+      success: true,
+      message: 'Agent profile created successfully!',
+      data: {
+        agentId: agent.agentId,
+        referralCode: agent.referralCode,
+        referredBy: referringAgentData,
+        agentDetails: {
+          id: agent._id,
+          name: agent.name,
+          email: agent.email,
+          phoneNumber: agent.phoneNumber
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Apply for agent status error:', error);
+    console.error('Error details:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Error creating agent profile',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Check if user has agent profile
+// @route   GET /api/users/check-agent-status
+// @access  Private
+exports.checkAgentStatus = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    const agent = await Agent.findOne({ user: userId })
+      .populate('referredBy', 'name agentId referralCode');
+    
+    if (agent) {
+      return res.status(200).json({
+        success: true,
+        hasAgentProfile: true,
+        data: {
+          agentId: agent.agentId,
+          referralCode: agent.referralCode,
+          referralCount: agent.referralCount,
+          rewards: agent.rewards,
+          referredBy: agent.referredBy,
+          createdAt: agent.createdAt
+        }
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      hasAgentProfile: false
+    });
+  } catch (error) {
+    console.error('Check agent status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error checking agent status'
+    });
+  }
+};
+
+// @desc    Get agent profile
+// @route   GET /api/agent/profile
+// @access  Private
+exports.getAgentProfile = async (req, res) => {
+  try {
+    const agent = await Agent.findOne({ user: req.user.id })
+      .populate('user', 'name email phoneNumber username avatar')
+      .populate('referredBy', 'name agentId referralCode')
+      .populate('referralHistory.referredUser', 'name email')
+      .populate('referralHistory.referredAgent', 'name agentId');
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Agent profile not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: agent
+    });
+  } catch (error) {
+    console.error('Get agent profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching agent profile',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get agent referral info (code only, no link generation)
+// @route   GET /api/agent/referral-info
+// @access  Private
+exports.getReferralInfo = async (req, res) => {
+  try {
+    const agent = await Agent.findOne({ user: req.user.id });
+    
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Agent profile not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        referralCode: agent.referralCode,
+        referralCount: agent.referralCount,
+        rewards: agent.rewards
+      }
+    });
+  } catch (error) {
+    console.error('Get referral info error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching referral info',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Schedule an appointment (client onboarding)
+// @route   POST /api/agent/appointments
+// @access  Private (Agent only)
+exports.scheduleAppointment = async (req, res) => {
+  try {
+    const { 
+      clientId, 
+      propertyId, 
+      appointmentDate, 
+      appointmentTime,
+      notes 
+    } = req.body;
+
+    // Validate inputs
+    if (!clientId || !propertyId || !appointmentDate || !appointmentTime) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide clientId, propertyId, appointmentDate, and appointmentTime'
+      });
+    }
+
+    // Get agent
+    const agent = await Agent.findOne({ user: req.user.id });
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Agent profile not found'
+      });
+    }
+
+    // Check if client exists
+    const client = await User.findById(clientId);
+    if (!client) {
+      return res.status(404).json({
+        success: false,
+        message: 'Client not found'
+      });
+    }
+
+    // Check if property exists
+    const property = await PropertyUnit.findById(propertyId);
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: 'Property not found'
+      });
+    }
+
+    // Add appointment
+    await agent.addOnboardedClient({
+      client: clientId,
+      property: propertyId,
+      appointmentDate: new Date(appointmentDate),
+      appointmentTime,
+      notes: notes || '',
+      status: 'scheduled'
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Appointment scheduled successfully',
+      data: {
+        client: {
+          id: client._id,
+          name: client.name,
+          email: client.email,
+          phone: client.phoneNumber
+        },
+        property: {
+          id: property._id,
+          title: property.title,
+          address: property.address
+        },
+        appointmentDate,
+        appointmentTime
+      }
+    });
+  } catch (error) {
+    console.error('Schedule appointment error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error scheduling appointment',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get all appointments for agent
+// @route   GET /api/agent/appointments
+// @access  Private
+exports.getAppointments = async (req, res) => {
+  try {
+    const { status, startDate, endDate } = req.query;
+    
+    const agent = await Agent.findOne({ user: req.user.id })
+      .populate({
+        path: 'appointments.client',
+        select: 'name email phoneNumber'
+      })
+      .populate({
+        path: 'appointments.property',
+        select: 'title address city propertyType images'
+      });
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Agent profile not found'
+      });
+    }
+
+    let appointments = agent.appointments;
+
+    // Filter by status
+    if (status) {
+      appointments = appointments.filter(apt => apt.status === status);
+    }
+
+    // Filter by date range
+    if (startDate || endDate) {
+      appointments = appointments.filter(apt => {
+        const aptDate = new Date(apt.appointmentDate);
+        if (startDate && aptDate < new Date(startDate)) return false;
+        if (endDate && aptDate > new Date(endDate)) return false;
+        return true;
+      });
+    }
+
+    // Sort by date (newest first)
+    appointments.sort((a, b) => b.appointmentDate - a.appointmentDate);
+
+    res.status(200).json({
+      success: true,
+      count: appointments.length,
+      data: appointments
+    });
+  } catch (error) {
+    console.error('Get appointments error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching appointments',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Update appointment status
+// @route   PUT /api/agent/appointments/:appointmentId
+// @access  Private
+exports.updateAppointmentStatus = async (req, res) => {
+  try {
+    const { appointmentId } = req.params;
+    const { status, feedback, dealValue } = req.body;
+
+    const agent = await Agent.findOne({ user: req.user.id });
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Agent profile not found'
+      });
+    }
+
+    const appointment = agent.appointments.id(appointmentId);
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
+    // Update status
+    appointment.status = status;
+    
+    // Update corresponding onboarded client record
+    const clientRecord = agent.onboardedClients.find(
+      c => c.client.toString() === appointment.client.toString() && 
+           c.property.toString() === appointment.property.toString()
+    );
+    
+    if (clientRecord) {
+      clientRecord.status = status;
+      
+      if (dealValue) {
+        clientRecord.dealValue = dealValue;
+      }
+      
+      // Calculate reward (5% of deal value)
+      if (status === 'closed' && dealValue) {
+        const rewardAmount = dealValue * 0.05;
+        clientRecord.rewardEarned = rewardAmount;
+        agent.rewards += rewardAmount;
+        agent.stats.totalDealValue += dealValue;
+        agent.stats.completedVisits += 1;
+        agent.stats.conversionRate = (agent.stats.completedVisits / agent.stats.totalAppointments) * 100;
+      }
+      
+      if (feedback) {
+        clientRecord.feedback = feedback;
+      }
+    }
+
+    // Update stats
+    if (status === 'cancelled' || status === 'rejected') {
+      agent.stats.totalAppointments -= 1;
+    }
+
+    await agent.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Appointment status updated successfully',
+      data: appointment
+    });
+  } catch (error) {
+    console.error('Update appointment error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating appointment',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get referral statistics
+// @route   GET /api/agent/referral-stats
+// @access  Private
+exports.getReferralStats = async (req, res) => {
+  try {
+    const agent = await Agent.findOne({ user: req.user.id })
+      .populate('referralHistory.referredUser', 'name email createdAt')
+      .populate('referralHistory.referredAgent', 'name agentId');
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Agent profile not found'
+      });
+    }
+
+    const activeReferrals = agent.referralHistory.filter(r => r.status === 'active');
+    const convertedReferrals = agent.referralHistory.filter(r => r.status === 'converted');
+
+    res.status(200).json({
+      success: true,
+      data: {
+        totalReferrals: agent.referralCount,
+        activeReferrals: activeReferrals.length,
+        convertedReferrals: convertedReferrals.length,
+        totalRewards: agent.rewards,
+        referralHistory: agent.referralHistory,
+        referralCode: agent.referralCode
+      }
+    });
+  } catch (error) {
+    console.error('Get referral stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching referral statistics',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get agent dashboard stats
+// @route   GET /api/agent/dashboard
+// @access  Private
+exports.getDashboardStats = async (req, res) => {
+  try {
+    const agent = await Agent.findOne({ user: req.user.id });
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Agent profile not found'
+      });
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const upcomingAppointments = agent.appointments.filter(apt => 
+      apt.status === 'scheduled' && new Date(apt.appointmentDate) >= today
+    );
+
+    const recentActivities = agent.onboardedClients
+      .sort((a, b) => b.visitedAt - a.visitedAt)
+      .slice(0, 5);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        stats: {
+          totalReferrals: agent.referralCount,
+          totalRewards: agent.rewards,
+          totalAppointments: agent.stats?.totalAppointments || 0,
+          completedVisits: agent.stats?.completedVisits || 0,
+          totalDealValue: agent.stats?.totalDealValue || 0,
+          conversionRate: agent.stats?.conversionRate || 0,
+          clientsCount: agent.clientsCount
+        },
+        upcomingAppointments: upcomingAppointments.length,
+        recentActivities: recentActivities
+      }
+    });
+  } catch (error) {
+    console.error('Get dashboard stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching dashboard stats',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Track referral signup (called during user registration)
+// @route   POST /api/agent/track-referral
+// @access  Public
+exports.trackReferralSignup = async (req, res) => {
+  try {
+    const { referralCode, userId } = req.body;
+
+    if (!referralCode || !userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Referral code and user ID are required'
+      });
+    }
+
+    const agent = await Agent.findOne({ referralCode });
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Invalid referral code'
+      });
+    }
+
+    await agent.trackReferralSignup(userId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Referral tracked successfully'
+    });
+  } catch (error) {
+    console.error('Track referral error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error tracking referral',
+      error: error.message
+    });
+  }
+};
