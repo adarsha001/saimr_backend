@@ -1,7 +1,7 @@
 const User = require('../models/user');
 const axios = require('axios');
 const { OAuth2Client } = require('google-auth-library');
-
+const Agent = require('../models/Agent');
 // Initialize Google OAuth client
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
