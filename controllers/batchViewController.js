@@ -401,11 +401,14 @@ exports.getCompanyAnalytics = async (req, res) => {
   }
 };
 
-// Delete batch (admin only)
+
+
 exports.deleteBatch = async (req, res) => {
   try {
     const { batchId } = req.params;
     const isAdmin = req.user.isAdmin === true || req.user.userType === 'admin' || req.user.userType === 'superadmin';
+    
+    console.log("Delete batch request:", { batchId, isAdmin });
     
     if (!isAdmin) {
       return res.status(403).json({ 
@@ -419,11 +422,19 @@ exports.deleteBatch = async (req, res) => {
       return res.status(404).json({ success: false, message: "Batch not found" });
     }
     
-    await batch.deleteOne();
+    // Use findByIdAndDelete instead of deleteOne
+    const deletedBatch = await PropertyBatch.findByIdAndDelete(batchId);
+    
+    if (!deletedBatch) {
+      return res.status(404).json({ success: false, message: "Batch not found or already deleted" });
+    }
+    
+    console.log(`Batch "${deletedBatch.batchName}" deleted successfully`);
     
     res.status(200).json({
       success: true,
-      message: `Batch "${batch.batchName}" deleted successfully`
+      message: `Batch "${deletedBatch.batchName}" deleted successfully`,
+      data: deletedBatch
     });
   } catch (error) {
     console.error("Error deleting batch:", error);

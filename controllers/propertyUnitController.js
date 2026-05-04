@@ -2163,6 +2163,13 @@ const deletePropertyUnit = async (req, res) => {
 
 };
 // Backend Controller - Get all property units without pagination
+// backend/controllers/propertyUnitController.js
+
+// backend/controllers/propertyUnitController.js
+
+
+// backend/controllers/propertyUnitController.js
+
 const getAllPropertyUnitsNoPagination = async (req, res) => {
   try {
     const {
@@ -2182,7 +2189,6 @@ const getAllPropertyUnitsNoPagination = async (req, res) => {
       approvalStatus,
       createdBy,
       bedrooms,
-      bathrooms,
       carpetAreaMin,
       carpetAreaMax,
       builtUpAreaMin,
@@ -2195,7 +2201,7 @@ const getAllPropertyUnitsNoPagination = async (req, res) => {
       plotDevelopmentStatus,
       nearbyAmenity,
       nearbyDistanceMax,
-      excludeBatch // New parameter to exclude units already in a batch
+      excludeBatch
     } = req.query;
 
     // Build filter
@@ -2209,40 +2215,34 @@ const getAllPropertyUnitsNoPagination = async (req, res) => {
       filter.approvalStatus = 'approved';
       filter.availability = 'available';
     } else {
-      if (approvalStatus) {
+      if (approvalStatus && approvalStatus !== 'all' && approvalStatus !== 'undefined') {
         filter.approvalStatus = approvalStatus;
       }
-      if (availability) {
+      if (availability && availability !== 'all' && availability !== 'undefined') {
         filter.availability = availability;
       }
     }
 
-    // Exclude units already in a batch - FIXED: Check if excludeBatch is valid
-    if (excludeBatch && excludeBatch !== 'null' && excludeBatch !== 'undefined') {
-      // Only add the filter if excludeBatch is a valid string
-      filter.batchId = { $ne: excludeBatch };
-    }
-
-    // Apply basic filters (rest of your filters remain the same)
-    if (city && city.trim() !== '') {
+    // Apply basic filters
+    if (city && city.trim() !== '' && city !== 'all' && city !== 'undefined') {
       filter.city = new RegExp(city.trim(), 'i');
     }
     
-    if (propertyType && propertyType.trim() !== '') {
+    if (propertyType && propertyType.trim() !== '' && propertyType !== 'all' && propertyType !== 'undefined') {
       filter.propertyType = propertyType.trim();
     }
     
-    if (listingType && listingType.trim() !== '') {
+    if (listingType && listingType.trim() !== '' && listingType !== 'all' && listingType !== 'undefined') {
       filter.listingType = listingType.trim();
     }
     
     // Filter by unit type
-    if (unitType && unitType.trim() !== '') {
+    if (unitType && unitType.trim() !== '' && unitType !== 'all' && unitType !== 'undefined') {
       filter['unitTypes.type'] = unitType.trim();
     }
     
     // Filter by bedrooms count
-    if (bedrooms && !isNaN(bedrooms)) {
+    if (bedrooms && !isNaN(bedrooms) && bedrooms !== 'all' && bedrooms !== 'undefined') {
       const bedroomPattern = new RegExp(`${bedrooms}BHK`);
       filter['unitTypes.type'] = bedroomPattern;
     }
@@ -2276,15 +2276,15 @@ const getAllPropertyUnitsNoPagination = async (req, res) => {
     }
     
     // Specifications filters
-    if (furnishing && furnishing.trim() !== '') {
+    if (furnishing && furnishing.trim() !== '' && furnishing !== 'all' && furnishing !== 'undefined') {
       filter['commonSpecifications.furnishing'] = furnishing.trim();
     }
     
-    if (possessionStatus && possessionStatus.trim() !== '') {
+    if (possessionStatus && possessionStatus.trim() !== '' && possessionStatus !== 'all' && possessionStatus !== 'undefined') {
       filter['commonSpecifications.possessionStatus'] = possessionStatus.trim();
     }
     
-    if (kitchenType && kitchenType.trim() !== '') {
+    if (kitchenType && kitchenType.trim() !== '' && kitchenType !== 'all' && kitchenType !== 'undefined') {
       filter['commonSpecifications.kitchenType'] = kitchenType.trim();
     }
     
@@ -2297,29 +2297,29 @@ const getAllPropertyUnitsNoPagination = async (req, res) => {
     }
     
     // Legal filters
-    if (reraRegistered !== undefined && reraRegistered !== '') {
+    if (reraRegistered !== undefined && reraRegistered !== '' && reraRegistered !== 'all' && reraRegistered !== 'undefined') {
       filter['legalDetails.reraRegistered'] = reraRegistered === 'true';
     }
     
-    if (khataStatus && khataStatus.trim() !== '') {
+    if (khataStatus && khataStatus.trim() !== '' && khataStatus !== 'all' && khataStatus !== 'undefined') {
       filter['legalDetails.khataStatus'] = khataStatus.trim();
     }
     
-    if (ownershipType && ownershipType.trim() !== '') {
+    if (ownershipType && ownershipType.trim() !== '' && ownershipType !== 'all' && ownershipType !== 'undefined') {
       filter['legalDetails.ownershipType'] = ownershipType.trim();
     }
     
     // Plot-specific filters
-    if (plotLandUse && plotLandUse.trim() !== '') {
+    if (plotLandUse && plotLandUse.trim() !== '' && plotLandUse !== 'all' && plotLandUse !== 'undefined') {
       filter['unitTypes.plotDetails.landUse'] = plotLandUse.trim();
     }
     
-    if (plotDevelopmentStatus && plotDevelopmentStatus.trim() !== '') {
+    if (plotDevelopmentStatus && plotDevelopmentStatus.trim() !== '' && plotDevelopmentStatus !== 'all' && plotDevelopmentStatus !== 'undefined') {
       filter['unitTypes.plotDetails.developmentStatus'] = plotDevelopmentStatus.trim();
     }
     
     // Nearby amenities filter
-    if (nearbyAmenity && nearbyAmenity.trim() !== '') {
+    if (nearbyAmenity && nearbyAmenity.trim() !== '' && nearbyAmenity !== 'all' && nearbyAmenity !== 'undefined') {
       const amenityFilter = { 'locationNearby.name': new RegExp(nearbyAmenity.trim(), 'i') };
       
       if (nearbyDistanceMax && !isNaN(nearbyDistanceMax)) {
@@ -2328,16 +2328,19 @@ const getAllPropertyUnitsNoPagination = async (req, res) => {
         };
       }
       
-      filter.$and = filter.$and || [];
-      filter.$and.push(amenityFilter);
+      if (filter.$and) {
+        filter.$and.push(amenityFilter);
+      } else {
+        filter.$and = [amenityFilter];
+      }
     }
     
     // Admin-only filters
     if (isAdmin) {
-      if (isFeatured !== undefined && isFeatured !== '') {
+      if (isFeatured !== undefined && isFeatured !== '' && isFeatured !== 'all' && isFeatured !== 'undefined') {
         filter.isFeatured = isFeatured === 'true';
       }
-      if (isVerified !== undefined && isVerified !== '') {
+      if (isVerified !== undefined && isVerified !== '' && isVerified !== 'all' && isVerified !== 'undefined') {
         filter.isVerified = isVerified === 'true';
       }
     }
@@ -2345,7 +2348,7 @@ const getAllPropertyUnitsNoPagination = async (req, res) => {
     // Search filter
     if (searchQuery && searchQuery.trim() !== '') {
       const searchRegex = new RegExp(searchQuery.trim(), 'i');
-      filter.$or = [
+      const searchConditions = [
         { title: searchRegex },
         { description: searchRegex },
         { address: searchRegex },
@@ -2354,70 +2357,69 @@ const getAllPropertyUnitsNoPagination = async (req, res) => {
         { 'unitTypes.type': searchRegex },
         { 'locationNearby.name': searchRegex }
       ];
+      
+      if (filter.$or) {
+        if (!filter.$and) filter.$and = [];
+        filter.$and.push({ $or: searchConditions });
+      } else {
+        filter.$or = searchConditions;
+      }
     }
     
     // Filter by creator
-    if (createdBy && createdBy.trim() !== '') {
+    if (createdBy && createdBy.trim() !== '' && createdBy !== 'all' && createdBy !== 'undefined') {
       filter.createdBy = createdBy.trim();
     }
 
-    // Build sort object
-    let sort = { displayOrder: -1, createdAt: -1 };
-    
-    const sortBy = req.query.sortBy || 'displayOrder';
-    const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
-    
-    const allowedSortFields = {
-      'displayOrder': 'displayOrder',
-      'createdAt': 'createdAt',
-      'updatedAt': 'updatedAt',
-      'title': 'title',
-      'city': 'city',
-      'listingType': 'listingType',
-      'isFeatured': 'isFeatured',
-      'isVerified': 'isVerified',
-      'availability': 'availability',
-      'price': 'unitTypes.price.amount',
-      'carpetArea': 'unitTypes.carpetArea',
-      'builtUpArea': 'unitTypes.builtUpArea',
-      'viewCount': 'viewCount'
-    };
+    console.log('Query filter:', JSON.stringify(filter, null, 2));
 
-    const sortField = allowedSortFields[sortBy] || 'displayOrder';
-    
-    if (sortField === 'displayOrder') {
-      sort = { 
-        [sortField]: sortOrder,
-        'createdAt': -1
-      };
-    } else if (sortField === 'price') {
-      sort = {
-        'unitTypes.price.amount': sortOrder,
-        displayOrder: -1
-      };
-    } else {
-      sort = {
-        [sortField]: sortOrder,
-        displayOrder: -1,
-        createdAt: -1
-      };
-    }
-
-    // Execute query - NO PAGINATION, get ALL records
-    const query = PropertyUnit.find(filter);
-    
-    if (Object.keys(sort).length > 0) {
-      query.sort(sort);
-    }
-    
-    const propertyUnits = await query
+    // Execute query - Get ALL property units matching filters
+    let propertyUnits = await PropertyUnit.find(filter)
       .populate('createdBy', 'name email phoneNumber avatar')
+      .sort({ displayOrder: -1, createdAt: -1 })
       .lean();
 
-    // Transform data for frontend compatibility (same as before)
+    console.log(`Found ${propertyUnits.length} property units before batch exclusion`);
+
+    // Handle excludeBatch - Remove units that are already in the specified batch
+    if (excludeBatch && excludeBatch !== 'null' && excludeBatch !== 'undefined' && excludeBatch.trim() !== '') {
+      try {
+        console.log('Excluding batch:', excludeBatch);
+        
+        // Find the batch and get all property IDs in it
+        const batch = await PropertyBatch.findById(excludeBatch)
+          .select('propertyUnits')
+          .lean();
+        
+        if (batch && batch.propertyUnits && batch.propertyUnits.length > 0) {
+          // Extract property IDs from the batch
+          const excludedPropertyIds = batch.propertyUnits
+            .map(item => item.propertyId ? item.propertyId.toString() : null)
+            .filter(id => id !== null);
+          
+          console.log(`Found ${excludedPropertyIds.length} properties to exclude`);
+          
+          if (excludedPropertyIds.length > 0) {
+            const originalCount = propertyUnits.length;
+            // Filter out properties that are in the excluded batch
+            propertyUnits = propertyUnits.filter(unit => 
+              !excludedPropertyIds.includes(unit._id.toString())
+            );
+            console.log(`Excluded ${originalCount - propertyUnits.length} properties. Remaining: ${propertyUnits.length}`);
+          }
+        } else {
+          console.log('Batch not found or has no properties');
+        }
+      } catch (err) {
+        console.error('Error checking batch exclusion:', err.message);
+        // Don't throw error, just continue without exclusion
+      }
+    }
+
+    // Transform data for frontend compatibility
     const transformedData = propertyUnits.map(unit => {
       const primaryUnitType = unit.unitTypes && unit.unitTypes.length > 0 
-        ? unit.unitTypes.sort((a, b) => a.price.amount - b.price.amount)[0] 
+        ? [...unit.unitTypes].sort((a, b) => (a.price?.amount || 0) - (b.price?.amount || 0))[0] 
         : null;
       
       const totalParking = (unit.commonSpecifications?.parking?.covered || 0) + 
@@ -2428,7 +2430,21 @@ const getAllPropertyUnitsNoPagination = async (req, res) => {
       const bathroomsCount = bedroomsCount > 0 ? bedroomsCount : 1;
       
       return {
-        ...unit,
+        _id: unit._id,
+        title: unit.title,
+        description: unit.description,
+        city: unit.city,
+        address: unit.address,
+        propertyType: unit.propertyType,
+        availability: unit.availability,
+        images: unit.images || [],
+        listingType: unit.listingType,
+        isFeatured: unit.isFeatured,
+        isVerified: unit.isVerified,
+        approvalStatus: unit.approvalStatus,
+        createdBy: unit.createdBy,
+        createdAt: unit.createdAt,
+        updatedAt: unit.updatedAt,
         specifications: {
           furnishing: unit.commonSpecifications?.furnishing,
           possessionStatus: unit.commonSpecifications?.possessionStatus,
@@ -2473,6 +2489,7 @@ const getAllPropertyUnitsNoPagination = async (req, res) => {
         .sort((a, b) => a - b)
     )];
 
+    // Send response
     res.status(200).json({
       success: true,
       count: transformedData.length,
@@ -2496,8 +2513,6 @@ const getAllPropertyUnitsNoPagination = async (req, res) => {
     });
   }
 };
-
-
 
 
 module.exports = {

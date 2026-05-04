@@ -194,10 +194,11 @@ const register = async (req, res) => {
       gmail, 
       password,
       captchaToken,
-      sourceWebsite = 'direct'
+      sourceWebsite = 'direct',
+      referralCode  // Add referral code from URL query param
     } = req.body;
 
-    console.log("Registration attempt for:", username, "from:", sourceWebsite);
+    console.log("Registration attempt for:", username, "from:", sourceWebsite, "referralCode:", referralCode);
 
     // Validate sourceWebsite if provided
     if (sourceWebsite && !['saimgroups', 'cleartitle1', 'direct'].includes(sourceWebsite)) {
@@ -266,12 +267,78 @@ const register = async (req, res) => {
       lastLogin: new Date() // Set last login on registration
     });
 
-    // 4. Generate token
+    // 4. Handle Referral Logic
+    let referringAgent = null;
+    let referralApplied = false;
+
+    if (referralCode) {
+      // Find the agent by referral code
+      referringAgent = await Agent.findOne({ referralCode: referralCode });
+      
+      if (referringAgent) {
+        console.log(`Referral code ${referralCode} found for agent: ${referringAgent.agentId}`);
+        
+        // Add to agent's referral history
+        await referringAgent.addReferral(user._id, null);
+        
+        // If the user is registering as an agent themselves, we need to track that too
+        if (userType === 'agent') {
+          // Link this user to the referring agent
+          user.referredBy = referringAgent.user;
+        }
+        
+        referralApplied = true;
+        console.log(`Referral successfully tracked: ${referringAgent.agentId} referred user ${user._id}`);
+      } else {
+        console.log(`Referral code ${referralCode} not found`);
+      }
+    }
+
+    // 5. If user is registering as an agent, create Agent profile
+    let agentProfile = null;
+    if (userType === 'agent') {
+      const Agent = require('../models/Agent');
+      
+      const agentData = {
+        user: user._id,
+        name: `${name} ${lastName || ''}`.trim(),
+        email: gmail,
+        phoneNumber: phoneNumber,
+        isActive: true,
+        // If they were referred, link the referring agent
+        referredBy: referringAgent ? referringAgent._id : null
+      };
+      
+      agentProfile = await Agent.create(agentData);
+      
+      // Update user with agent profile reference
+      user.agentProfile = agentProfile._id;
+      
+      // If the user was referred and is now an agent, track this in the referring agent's history
+      if (referralApplied && referringAgent) {
+        // Update the referral history to mark that the referred user became an agent
+        const referralEntry = referringAgent.referralHistory.find(
+          r => r.referredUser && r.referredUser.toString() === user._id.toString()
+        );
+        
+        if (referralEntry) {
+          referralEntry.referredAgent = agentProfile._id;
+          referralEntry.status = 'converted';
+          await referringAgent.save();
+        }
+      }
+      
+      await user.save();
+    }
+
+    // 6. Generate token
     const token = user.getSignedJwtToken();
 
     res.status(201).json({
       success: true,
-      message: "User registered successfully",
+      message: referralApplied 
+        ? "User registered successfully with referral tracking" 
+        : "User registered successfully",
       token,
       user: {
         id: user._id,
@@ -288,7 +355,10 @@ const register = async (req, res) => {
         websiteLogins: user.websiteLogins,
         currentWebsite: sourceWebsite,
         hasLoggedInToCurrentWebsite: sourceWebsite === 'direct' ? null : true,
-        loginCountToCurrentWebsite: sourceWebsite === 'direct' ? null : 1
+        loginCountToCurrentWebsite: sourceWebsite === 'direct' ? null : 1,
+        agentProfile: user.agentProfile,
+        referralApplied: referralApplied,
+        referringAgentCode: referralApplied ? referralCode : null
       }
     });
   } catch (error) {

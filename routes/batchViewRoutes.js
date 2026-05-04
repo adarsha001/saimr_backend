@@ -46,7 +46,7 @@ router.get("/admin/batch/:batchId/user-clicks", protect, authorize("admin", "sup
 router.get("/admin/batch/:batchId/export", protect, authorize("admin", "superadmin"), exportBatchAnalytics);
 
 // Delete batch
-router.delete("/admin/batch/:batchId", protect, authorize("admin", "superadmin"), deleteBatch);
+router.delete("/admin/batches/:batchId", protect, authorize("admin", "superadmin"), deleteBatch);
 
 // Toggle batch active status
 router.patch("/admin/batch/:batchId/toggle", protect, authorize("admin", "superadmin"), toggleBatchStatus);
