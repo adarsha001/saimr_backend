@@ -5,7 +5,6 @@ const agentSchema = new mongoose.Schema({
   agentId: {
     type: String,
     unique: true,
-    // Remove required: true, let pre-save handle it
   },
 
   user: {
@@ -15,7 +14,7 @@ const agentSchema = new mongoose.Schema({
     unique: true
   },
 
-  // ================= REFERRAL SYSTEM =================
+
   referralCode: {
     type: String,
     unique: true,
@@ -49,7 +48,7 @@ const agentSchema = new mongoose.Schema({
       ref: 'User'
     },
     referredAt: {
-      type: Date,
+      type: Date, 
       default: Date.now
     },
     status: {

@@ -15,7 +15,7 @@ const blogSchema = new mongoose.Schema({
     lowercase: true
   },
   
-  // Q&A Format
+
   question: {
     type: String,
     required: true
