@@ -136,6 +136,7 @@ app.use('/api/admin', require('./routes/adminRoutescleartitle'));
 app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/bookings', require('./routes/bookingRoutes'));
+app.use('/api/card-ads', require('./routes/cardAdRoutes'));
 
 app.use('/api/referrals',require('./routes/referralRoutes') ); 
 app.use('/api/batches', require('./routes/publicBatchRoutes'));
