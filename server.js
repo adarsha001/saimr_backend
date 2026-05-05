@@ -131,6 +131,9 @@ app.use('/sitemap.xml', express.static('public/sitemap.xml'));
 /* =========================
    ✅ ROUTES
 ========================= */
+
+app.use('/api/admin', require('./routes/adminRoutescleartitle'));
+app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/bookings', require('./routes/bookingRoutes'));
 
@@ -145,7 +148,7 @@ app.use('/api/auth/truecaller', truecallerRoutes);
 app.use('/api/blogs', blogRoutes);
 app.use('/api/employee/admin',require("./routes/adminEmployeeRoutes"))
 
-app.use('/api/admin', require('./routes/adminRoutes'));
+
 app.use('/api/admin/agent', require('./routes/agentroute'));
 app.use('/api/clicks', require('./routes/clicks'));
 app.use("/api/agents", agentRoutes);

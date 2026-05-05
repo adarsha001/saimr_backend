@@ -373,7 +373,7 @@ exports.getAllUsersWithLikes = async (req, res) => {
   }
 };
 
-// ✅ Get single user by ID with complete details
+
 exports.getUserById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -385,30 +385,74 @@ exports.getUserById = async (req, res) => {
       });
     }
 
-    const user = await User.findById(id)
-      .select('-password')
-      .populate({
-        path: 'likedProperties.property',
-        select: 'title description city propertyLocation price images category propertyType approvalStatus isFeatured isVerified attributes features nearby createdAt',
-        populate: {
-          path: 'createdBy',
-          select: 'name username gmail phoneNumber'
-        }
-      })
-      .populate({
-        path: 'postedProperties.property',  // Note: This should include .property
-        select: 'title description city propertyLocation price images category propertyType approvalStatus isFeatured isVerified attributes features nearby createdAt',
-        populate: {
-          path: 'createdBy',
-          select: 'name username gmail phoneNumber'
-        }
-      });
+    console.log("Fetching user:", id);
 
+    // Get the user
+    const user = await User.findById(id).select('-password').lean();
+    
     if (!user) {
       return res.status(404).json({ 
         success: false, 
         message: "User not found" 
       });
+    }
+
+    console.log('Posted properties in DB:', user.postedProperties?.length || 0);
+
+    // Handle posted properties - Use PropertyUnit model
+    let populatedPostedProperties = [];
+    
+    if (user.postedProperties && user.postedProperties.length > 0) {
+      console.log('Processing posted properties...');
+      
+      // Use PropertyUnit model (not Property)
+      const PropertyUnit = mongoose.model('PropertyUnit');
+      
+      // Extract property IDs
+      const propertyIds = user.postedProperties
+        .filter(item => item.property)
+        .map(item => item.property);
+      
+      console.log('Property IDs to fetch:', propertyIds.length);
+      
+      if (propertyIds.length > 0) {
+        // Fetch properties from PropertyUnit collection
+        const properties = await PropertyUnit.find({
+          _id: { $in: propertyIds }
+        }).select('title description city address priceRange propertyType approvalStatus isFeatured isVerified images createdAt')
+          .populate('createdBy', 'name username gmail phoneNumber')
+          .lean();
+        
+        console.log('Properties found in PropertyUnit:', properties.length);
+        
+        // Create a map for quick lookup
+        const propertyMap = new Map();
+        properties.forEach(prop => {
+          propertyMap.set(prop._id.toString(), prop);
+        });
+        
+        // Reconstruct the array with populated data
+        populatedPostedProperties = user.postedProperties
+          .map(postItem => {
+            const propertyId = postItem.property.toString();
+            const populatedProperty = propertyMap.get(propertyId);
+            
+            if (!populatedProperty) {
+              console.log(`PropertyUnit not found for ID: ${propertyId}`);
+              return null;
+            }
+            
+            return {
+              _id: postItem._id,
+              postedAt: postItem.postedAt,
+              status: postItem.status,
+              property: populatedProperty
+            };
+          })
+          .filter(item => item !== null);
+        
+        console.log('Successfully populated:', populatedPostedProperties.length);
+      }
     }
 
     // Process avatar URL
@@ -419,7 +463,8 @@ exports.getUserById = async (req, res) => {
         : `${process.env.BACKEND_URL || 'http://localhost:5000'}/${user.avatar}`;
     }
 
-    res.status(200).json({
+    // Send response
+    const responseData = {
       success: true,
       user: {
         // Basic Info
@@ -465,12 +510,8 @@ exports.getUserById = async (req, res) => {
         websiteLogins: user.websiteLogins,
         
         // Property Information
-        likedPropertiesCount: user.likedProperties.length,
-        postedPropertiesCount: user.postedProperties.length,
-        
-        // Properties with their metadata
-        likedProperties: user.likedProperties,  // Keep the nested structure
-        postedProperties: user.postedProperties,  // Keep the nested structure
+        postedPropertiesCount: populatedPostedProperties.length,
+        postedProperties: populatedPostedProperties,
         
         // Settings and Preferences
         notifications: user.notifications,
@@ -485,9 +526,17 @@ exports.getUserById = async (req, res) => {
         
         // Timestamps
         createdAt: user.createdAt,
-        updatedAt: user.updatedAt
+        updatedAt: user.updatedAt,
+        
+        // Agent info
+        agentApproval: user.agentApproval,
+        agentProfile: user.agentProfile
       }
-    });
+    };
+    
+    console.log('Sending response with posted properties count:', responseData.user.postedPropertiesCount);
+    
+    res.status(200).json(responseData);
   } catch (error) {
     console.error('❌ Error fetching user details:', error);
     res.status(500).json({ 

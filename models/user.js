@@ -189,7 +189,7 @@ const userSchema = new mongoose.Schema({
   postedProperties: [{
     property: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Property',
+      ref: 'PropertyUnit',
       required: true
     },
     postedAt: {
