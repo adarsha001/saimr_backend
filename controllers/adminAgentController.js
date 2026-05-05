@@ -1,80 +1,143 @@
 // controllers/adminAgentController.js
 const User = require('../models/user');
 const Agent = require('../models/Agent');
-const Counter = require('../models/Counter');
+const PropertyUnit = require('../models/PropertyUnit');
 
-// @desc    Get all agent applications
-// @route   GET /api/admin/agents/applications
-// @access  Private/Admin
-exports.getAgentApplications = async (req, res) => {
+// Get all agents with pagination and search
+const getAllAgents = async (req, res) => {
   try {
-    const { status, page = 1, limit = 20, search } = req.query;
+    const { page = 1, limit = 10, search = '' } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    // Build query
-    let query = { userType: 'agent' };
+    let query = {};
     
-    // Filter by approval status
-    if (status && ['pending', 'approved', 'rejected', 'suspended'].includes(status)) {
-      query['agentApproval.status'] = status;
-    } else {
-      // Default to pending if no status specified
-      query['agentApproval.status'] = 'pending';
-    }
-    
-    // Search by username, name, email, or phone
     if (search) {
       query.$or = [
-        { username: { $regex: search, $options: 'i' } },
         { name: { $regex: search, $options: 'i' } },
-        { gmail: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { agentId: { $regex: search, $options: 'i' } },
         { phoneNumber: { $regex: search, $options: 'i' } }
       ];
     }
     
-    // Execute query with pagination
-    const skip = (page - 1) * limit;
+    const total = await Agent.countDocuments(query);
+    const totalPages = Math.ceil(total / parseInt(limit));
     
-    const users = await User.find(query)
-      .select('-password')
-      .sort({ 'agentApproval.appliedAt': -1 })
+    const agents = await Agent.find(query)
+      .select('name email phoneNumber agentId referralCode referralCount rewards isActive onboardedClients createdAt')
+      .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(parseInt(limit))
-      .populate('agentProfile', 'agentId name email phoneNumber')
-      .populate('agentApproval.reviewedBy', 'username name');
+      .limit(parseInt(limit));
     
-    const total = await User.countDocuments(query);
+    const agentsWithCount = agents.map(agent => ({
+      ...agent.toObject(),
+      appointmentCount: agent.onboardedClients?.length || 0
+    }));
     
     res.status(200).json({
       success: true,
-      count: users.length,
+      agents: agentsWithCount,
       total,
-      totalPages: Math.ceil(total / limit),
-      currentPage: parseInt(page),
-      agents: users
+      totalPages,
+      currentPage: parseInt(page)
     });
+    
   } catch (error) {
-    console.error('Get agent applications error:', error);
+    console.error('Error fetching agents:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error',
+      message: 'Error fetching agents',
       error: error.message
     });
   }
 };
 
-// @desc    Get agent by agentId
-// @route   GET /api/admin/agents/:agentId
-// @access  Private/Admin
-exports.getAgentById = async (req, res) => {
+// Get global agent statistics for admin dashboard
+const getGlobalAgentStats = async (req, res) => {
+  try {
+    const totalAgents = await Agent.countDocuments();
+    const activeAgents = await Agent.countDocuments({ isActive: true });
+    const suspendedAgents = await Agent.countDocuments({ isActive: false });
+    
+    const totalReferrals = await Agent.aggregate([
+      { $group: { _id: null, total: { $sum: "$referralCount" } } }
+    ]);
+    
+    const totalRewards = await Agent.aggregate([
+      { $group: { _id: null, total: { $sum: "$rewards" } } }
+    ]);
+    
+    const totalAppointments = await Agent.aggregate([
+      { $unwind: "$onboardedClients" },
+      { $group: { _id: null, total: { $sum: 1 } } }
+    ]);
+    
+    const closedDeals = await Agent.aggregate([
+      { $unwind: "$onboardedClients" },
+      { $match: { "onboardedClients.status": "closed" } },
+      { $group: { _id: null, total: { $sum: 1 } } }
+    ]);
+    
+    const totalDealValue = await Agent.aggregate([
+      { $unwind: "$onboardedClients" },
+      { $group: { _id: null, total: { $sum: "$onboardedClients.dealValue" } } }
+    ]);
+    
+    // Top agents by referrals
+    const topAgentsByReferrals = await Agent.find()
+      .sort({ referralCount: -1 })
+      .limit(5)
+      .select('name agentId referralCount rewards email phoneNumber');
+    
+    // Top agents by rewards
+    const topAgentsByRewards = await Agent.find()
+      .sort({ rewards: -1 })
+      .limit(5)
+      .select('name agentId referralCount rewards email phoneNumber');
+    
+    // Recent agents
+    const recentAgents = await Agent.find()
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .select('name agentId email createdAt isActive');
+    
+    res.status(200).json({
+      success: true,
+      stats: {
+        totalAgents,
+        activeAgents,
+        suspendedAgents,
+        totalReferrals: totalReferrals[0]?.total || 0,
+        totalRewards: totalRewards[0]?.total || 0,
+        totalAppointments: totalAppointments[0]?.total || 0,
+        closedDeals: closedDeals[0]?.total || 0,
+        totalDealValue: totalDealValue[0]?.total || 0,
+        topAgentsByReferrals,
+        topAgentsByRewards,
+        recentAgents
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching global stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching statistics',
+      error: error.message
+    });
+  }
+};
+
+// Get single agent summary
+const getAgentSummary = async (req, res) => {
   try {
     const { agentId } = req.params;
     
-    // Search by agentId (case insensitive)
-    const agent = await Agent.findOne({ 
-      agentId: { $regex: new RegExp(`^${agentId}$`, 'i') }
-    })
-    .populate('user', 'username name lastName gmail phoneNumber userType agentApproval avatar')
-    .populate('approvedBy', 'username name');
+    const agent = await Agent.findOne({ agentId: agentId })
+      .populate('user', 'name email phoneNumber avatar createdAt')
+      .populate('referralHistory.referredUser', 'name email phoneNumber username createdAt')
+      .populate('onboardedClients.client', 'name email phoneNumber')
+      .populate('onboardedClients.property', 'title address city propertyType');
     
     if (!agent) {
       return res.status(404).json({
@@ -83,501 +146,192 @@ exports.getAgentById = async (req, res) => {
       });
     }
     
-    res.status(200).json({
-      success: true,
-      agent
-    });
-  } catch (error) {
-    console.error('Get agent by ID error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-};
-
-// @desc    Search agents by various criteria
-// @route   GET /api/admin/agents/search
-// @access  Private/Admin
-exports.searchAgents = async (req, res) => {
-  try {
-    const { agentId, email, phone, name, company, city, status } = req.query;
+    const totalReferrals = agent.referralHistory.length;
+    const convertedReferrals = agent.referralHistory.filter(r => r.status === 'converted').length;
+    const activeReferrals = agent.referralHistory.filter(r => r.status === 'active').length;
     
-    let query = {};
+    const totalAppointments = agent.onboardedClients.length;
+    const scheduledAppointments = agent.onboardedClients.filter(a => a.status === 'scheduled').length;
+    const visitedAppointments = agent.onboardedClients.filter(a => a.status === 'visited').length;
+    const interestedAppointments = agent.onboardedClients.filter(a => a.status === 'interested').length;
+    const negotiationAppointments = agent.onboardedClients.filter(a => a.status === 'negotiation').length;
+    const closedAppointments = agent.onboardedClients.filter(a => a.status === 'closed').length;
+    const cancelledAppointments = agent.onboardedClients.filter(a => a.status === 'cancelled').length;
     
-    // Build search query for Agent model
-    if (agentId) {
-      query.agentId = { $regex: agentId, $options: 'i' };
-    }
-    if (email) {
-      query.email = { $regex: email, $options: 'i' };
-    }
-    if (phone) {
-      query.phoneNumber = { $regex: phone, $options: 'i' };
-    }
-    if (name) {
-      query.name = { $regex: name, $options: 'i' };
-    }
-    if (company) {
-      query.company = { $regex: company, $options: 'i' };
-    }
-    if (city) {
-      query['officeAddress.city'] = { $regex: city, $options: 'i' };
-    }
-    
-    // If status is provided, we need to join with User model
-    let agents;
-    
-    if (status) {
-      // Get all agents with the status filter
-      const users = await User.find({
-        'agentApproval.status': status,
-        userType: 'agent'
-      }).select('_id');
-      
-      const userIds = users.map(user => user._id);
-      
-      // Add user filter to query
-      if (userIds.length > 0) {
-        query.user = { $in: userIds };
-      } else {
-        // No users with this status, return empty
-        return res.status(200).json({
-          success: true,
-          count: 0,
-          agents: []
-        });
-      }
-    }
-    
-    agents = await Agent.find(query)
-      .populate('user', 'username name lastName gmail phoneNumber userType agentApproval avatar')
-      .populate('approvedBy', 'username name')
-      .sort({ createdAt: -1 })
-      .limit(50);
+    const totalDealValue = agent.onboardedClients.reduce((sum, a) => sum + (a.dealValue || 0), 0);
     
     res.status(200).json({
       success: true,
-      count: agents.length,
-      agents
-    });
-  } catch (error) {
-    console.error('Search agents error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-};
-
-// @desc    Approve agent application and create agent profile
-// @route   PUT /api/admin/agents/:userId/approve
-// @access  Private/Admin
-exports.approveAgent = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { licenseNumber, experienceYears, specializationAreas, notes } = req.body;
-    
-    // Find user
-    const user = await User.findById(userId);
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-    
-    if (user.userType !== 'agent') {
-      return res.status(400).json({
-        success: false,
-        message: 'User is not registered as an agent'
-      });
-    }
-    
-    if (user.agentApproval.status === 'approved') {
-      return res.status(400).json({
-        success: false,
-        message: 'Agent is already approved'
-      });
-    }
-    
-    // Create Agent profile
-    const agentData = {
-      user: user._id,
-      licenseNumber: licenseNumber || '',
-      experienceYears: experienceYears || 0,
-      specializationAreas: specializationAreas || [],
-      name: `${user.name} ${user.lastName || ''}`.trim(),
-      email: user.gmail,
-      phoneNumber: user.phoneNumber,
-      company: user.company || '',
-      officeAddress: user.officeAddress || {},
-      approvedBy: req.user.id
-    };
-    
-    // Generate agentId using Counter
-    const counter = await Counter.findOneAndUpdate(
-      { name: 'agentId' },
-      { $inc: { seq: 1 } },
-      { new: true, upsert: true }
-    );
-    
-    agentData.agentId = `cleartitle1s2500${counter.seq}`;
-    
-    // Create agent profile
-    const agent = await Agent.create(agentData);
-    
-    // Update user's agent approval status and link agent profile
-    user.agentApproval.status = 'approved';
-    user.agentApproval.reviewedAt = new Date();
-    user.agentApproval.reviewedBy = req.user.id;
-    user.agentApproval.notes = notes || '';
-    user.agentProfile = agent._id;
-    
-    await user.save();
-    
-    res.status(200).json({
-      success: true,
-      message: 'Agent approved successfully',
-      user: {
-        _id: user._id,
-        username: user.username,
-        name: user.name,
-        email: user.gmail,
-        userType: user.userType,
-        agentApproval: user.agentApproval
-      },
       agent: {
-        _id: agent._id,
+        id: agent._id,
         agentId: agent.agentId,
         name: agent.name,
         email: agent.email,
         phoneNumber: agent.phoneNumber,
-        company: agent.company
-      }
-    });
-  } catch (error) {
-    console.error('Approve agent error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-};
-
-// @desc    Reject agent application
-// @route   PUT /api/admin/agents/:userId/reject
-// @access  Private/Admin
-exports.rejectAgent = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { rejectionReason, notes } = req.body;
-    
-    if (!rejectionReason) {
-      return res.status(400).json({
-        success: false,
-        message: 'Rejection reason is required'
-      });
-    }
-    
-    const user = await User.findById(userId);
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-    
-    if (user.userType !== 'agent') {
-      return res.status(400).json({
-        success: false,
-        message: 'User is not registered as an agent'
-      });
-    }
-    
-    // Update user's agent approval status
-    user.agentApproval.status = 'rejected';
-    user.agentApproval.reviewedAt = new Date();
-    user.agentApproval.reviewedBy = req.user.id;
-    user.agentApproval.rejectionReason = rejectionReason;
-    user.agentApproval.notes = notes || '';
-    
-    await user.save();
-    
-    res.status(200).json({
-      success: true,
-      message: 'Agent application rejected',
-      user: {
-        _id: user._id,
-        username: user.username,
-        name: user.name,
-        email: user.gmail,
-        userType: user.userType,
-        agentApproval: user.agentApproval
-      }
-    });
-  } catch (error) {
-    console.error('Reject agent error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-};
-
-// @desc    Set agent back to pending status
-// @route   PUT /api/admin/agents/:userId/pending
-// @access  Private/Admin
-exports.setAgentToPending = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { notes } = req.body;
-    
-    const user = await User.findById(userId);
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-    
-    if (user.userType !== 'agent') {
-      return res.status(400).json({
-        success: false,
-        message: 'User is not registered as an agent'
-      });
-    }
-    
-    // Update user's agent approval status
-    user.agentApproval.status = 'pending';
-    user.agentApproval.reviewedAt = new Date();
-    user.agentApproval.reviewedBy = req.user.id;
-    user.agentApproval.notes = notes || '';
-    
-    await user.save();
-    
-    res.status(200).json({
-      success: true,
-      message: 'Agent status set to pending',
-      user: {
-        _id: user._id,
-        username: user.username,
-        name: user.name,
-        email: user.gmail,
-        userType: user.userType,
-        agentApproval: user.agentApproval
-      }
-    });
-  } catch (error) {
-    console.error('Set agent to pending error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-};
-
-// @desc    Suspend an approved agent
-// @route   PUT /api/admin/agents/:userId/suspend
-// @access  Private/Admin
-exports.suspendAgent = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { reason, notes } = req.body;
-    
-    if (!reason) {
-      return res.status(400).json({
-        success: false,
-        message: 'Suspension reason is required'
-      });
-    }
-    
-    const user = await User.findById(userId).populate('agentProfile');
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-    
-    if (user.userType !== 'agent') {
-      return res.status(400).json({
-        success: false,
-        message: 'User is not registered as an agent'
-      });
-    }
-    
-    if (user.agentApproval.status !== 'approved') {
-      return res.status(400).json({
-        success: false,
-        message: 'Only approved agents can be suspended'
-      });
-    }
-    
-    // Update user's agent approval status
-    user.agentApproval.status = 'suspended';
-    user.agentApproval.reviewedAt = new Date();
-    user.agentApproval.reviewedBy = req.user.id;
-    user.agentApproval.rejectionReason = reason;
-    user.agentApproval.notes = notes || '';
-    
-    // Also update agent profile status
-    if (user.agentProfile) {
-      const agent = await Agent.findById(user.agentProfile._id);
-      if (agent) {
-        agent.isActive = false;
-        await agent.save();
-      }
-    }
-    
-    await user.save();
-    
-    res.status(200).json({
-      success: true,
-      message: 'Agent suspended successfully',
-      user: {
-        _id: user._id,
-        username: user.username,
-        name: user.name,
-        email: user.gmail,
-        userType: user.userType,
-        agentApproval: user.agentApproval
-      }
-    });
-  } catch (error) {
-    console.error('Suspend agent error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-};
-
-// @desc    Reactivate a suspended agent
-// @route   PUT /api/admin/agents/:userId/reactivate
-// @access  Private/Admin
-exports.reactivateAgent = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { notes } = req.body;
-    
-    const user = await User.findById(userId).populate('agentProfile');
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-    
-    if (user.userType !== 'agent') {
-      return res.status(400).json({
-        success: false,
-        message: 'User is not registered as an agent'
-      });
-    }
-    
-    if (user.agentApproval.status !== 'suspended') {
-      return res.status(400).json({
-        success: false,
-        message: 'Only suspended agents can be reactivated'
-      });
-    }
-    
-    // Update user's agent approval status
-    user.agentApproval.status = 'approved';
-    user.agentApproval.reviewedAt = new Date();
-    user.agentApproval.reviewedBy = req.user.id;
-    user.agentApproval.notes = notes || '';
-    
-    // Also update agent profile status
-    if (user.agentProfile) {
-      const agent = await Agent.findById(user.agentProfile._id);
-      if (agent) {
-        agent.isActive = true;
-        await agent.save();
-      }
-    }
-    
-    await user.save();
-    
-    res.status(200).json({
-      success: true,
-      message: 'Agent reactivated successfully',
-      user: {
-        _id: user._id,
-        username: user.username,
-        name: user.name,
-        email: user.gmail,
-        userType: user.userType,
-        agentApproval: user.agentApproval
-      }
-    });
-  } catch (error) {
-    console.error('Reactivate agent error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
-  }
-};
-
-// @desc    Get agent approval statistics
-// @route   GET /api/admin/agents/stats
-// @access  Private/Admin
-exports.getAgentStats = async (req, res) => {
-  try {
-    const stats = await User.aggregate([
-      { $match: { userType: 'agent' } },
-      {
-        $group: {
-          _id: '$agentApproval.status',
-          count: { $sum: 1 }
+        referralCode: agent.referralCode,
+        isActive: agent.isActive,
+        rewards: agent.rewards,
+        referralCount: agent.referralCount,
+        createdAt: agent.createdAt,
+        user: agent.user,
+        stats: {
+          totalReferrals,
+          convertedReferrals,
+          activeReferrals,
+          totalAppointments,
+          scheduledAppointments,
+          visitedAppointments,
+          interestedAppointments,
+          negotiationAppointments,
+          closedAppointments,
+          cancelledAppointments,
+          totalDealValue
         }
       }
-    ]);
-    
-    // Format stats
-    const formattedStats = {
-      pending: 0,
-      approved: 0,
-      rejected: 0,
-      suspended: 0,
-      total: 0
-    };
-    
-    stats.forEach(stat => {
-      formattedStats[stat._id] = stat.count;
-      formattedStats.total += stat.count;
     });
     
-    // Get total agents count
-    const totalAgents = await Agent.countDocuments();
-    const totalUsers = await User.countDocuments({ userType: 'agent' });
-    
-    res.status(200).json({
-      success: true,
-      stats: formattedStats,
-      totalAgents,
-      totalAgentUsers: totalUsers
-    });
   } catch (error) {
-    console.error('Get agent stats error:', error);
+    console.error('Error fetching agent summary:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error',
+      message: 'Error fetching agent summary',
       error: error.message
     });
   }
+};
+
+// Get agent's referred users
+const getAgentReferredUsers = async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    
+    const agent = await Agent.findOne({ agentId: agentId })
+      .populate('referralHistory.referredUser', 'name email phoneNumber username createdAt');
+    
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Agent not found'
+      });
+    }
+    
+    const referredUsers = agent.referralHistory
+      .filter(r => r.referredUser)
+      .map(r => ({
+        id: r._id,
+        user: r.referredUser,
+        referredAt: r.referredAt,
+        status: r.status,
+        rewardAmount: r.rewardAmount
+      }));
+    
+    res.status(200).json({
+      success: true,
+      referredUsers,
+      total: referredUsers.length
+    });
+    
+  } catch (error) {
+    console.error('Error fetching referred users:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching referred users',
+      error: error.message
+    });
+  }
+};
+
+// Get agent's appointments
+const getAgentAppointments = async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    
+    const agent = await Agent.findOne({ agentId: agentId })
+      .populate('onboardedClients.client', 'name email phoneNumber username')
+      .populate('onboardedClients.property', 'title address city propertyType images');
+    
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Agent not found'
+      });
+    }
+    
+    const appointments = agent.onboardedClients.map(appointment => ({
+      id: appointment._id,
+      client: appointment.client,
+      property: appointment.property,
+      appointmentDate: appointment.appointmentDate,
+      appointmentTime: appointment.appointmentTime,
+      status: appointment.status,
+      dealValue: appointment.dealValue,
+      rewardEarned: appointment.rewardEarned,
+      notes: appointment.notes,
+      visitedAt: appointment.visitedAt,
+      followUpDate: appointment.followUpDate,
+      feedback: appointment.feedback,
+      createdAt: appointment.createdAt
+    }));
+    
+    res.status(200).json({
+      success: true,
+      appointments,
+      total: appointments.length
+    });
+    
+  } catch (error) {
+    console.error('Error fetching agent appointments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching appointments',
+      error: error.message
+    });
+  }
+};
+
+// Update agent status (activate/suspend)
+const updateAgentStatus = async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const { isActive, reason } = req.body;
+    
+    const agent = await Agent.findOne({ agentId: agentId });
+    
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Agent not found'
+      });
+    }
+    
+    agent.isActive = isActive;
+    await agent.save();
+    
+    res.status(200).json({
+      success: true,
+      message: isActive ? 'Agent activated successfully' : 'Agent suspended successfully',
+      agent: {
+        agentId: agent.agentId,
+        name: agent.name,
+        isActive: agent.isActive
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error updating agent status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating agent status',
+      error: error.message
+    });
+  }
+};
+
+module.exports = {
+  getAllAgents,
+  getGlobalAgentStats,
+  getAgentSummary,
+  getAgentReferredUsers,
+  getAgentAppointments,
+  updateAgentStatus
 };

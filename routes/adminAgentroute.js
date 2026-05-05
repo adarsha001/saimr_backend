@@ -2,37 +2,28 @@
 const express = require('express');
 const router = express.Router();
 const {
-  getAgentApplications,
-  getAgentById,
-  searchAgents,
-  approveAgent,
-  rejectAgent,
-  setAgentToPending,
-  suspendAgent,
-  reactivateAgent,
-  getAgentStats
+  getAllAgents,
+  getGlobalAgentStats,
+  getAgentSummary,
+  getAgentReferredUsers,
+  getAgentAppointments,
+  updateAgentStatus
 } = require('../controllers/adminAgentController');
 
-// Import protect and authorize middleware
 const { protect, authorize } = require('../middleware/authMiddleware');
 
 // All routes require admin access
 router.use(protect);
 router.use(authorize('admin'));
 
-// Agent applications routes
-router.get('/applications', getAgentApplications);
-router.get('/stats', getAgentStats);
+// Global stats - MUST come before /:agentId routes
+router.get('/stats/global', getGlobalAgentStats);
 
-// Search agents
-router.get('/search', searchAgents);
-router.get('/:agentId', getAgentById);
-
-// Agent approval actions
-router.put('/:userId/approve', approveAgent);
-router.put('/:userId/reject', rejectAgent);
-router.put('/:userId/pending', setAgentToPending);
-router.put('/:userId/suspend', suspendAgent);
-router.put('/:userId/reactivate', reactivateAgent);
+// Agent management routes
+router.get('/', getAllAgents);                                    // GET /api/admin/agents
+router.get('/:agentId/summary', getAgentSummary);                 // GET /api/admin/agents/:agentId/summary
+router.get('/:agentId/referred-users', getAgentReferredUsers);    // GET /api/admin/agents/:agentId/referred-users
+router.get('/:agentId/appointments', getAgentAppointments);       // GET /api/admin/agents/:agentId/appointments
+router.put('/:agentId/status', updateAgentStatus);                // PUT /api/admin/agents/:agentId/status
 
 module.exports = router;
