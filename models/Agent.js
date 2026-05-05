@@ -1,4 +1,3 @@
-// models/Agent.js
 const mongoose = require('mongoose');
 
 const agentSchema = new mongoose.Schema({
@@ -13,7 +12,6 @@ const agentSchema = new mongoose.Schema({
     required: true,
     unique: true
   },
-
 
   referralCode: {
     type: String,
@@ -63,6 +61,7 @@ const agentSchema = new mongoose.Schema({
   }],
 
   // ================= CLIENT ONBOARDING =================
+  // This is the SINGLE source of truth for all appointments
   onboardedClients: [
     {
       client: {
@@ -123,41 +122,14 @@ const agentSchema = new mongoose.Schema({
           max: 5
         },
         comment: String
+      },
+
+      createdAt: {
+        type: Date,
+        default: Date.now
       }
     }
   ],
-
-  // Track appointments separately for easy querying
-  appointments: [{
-    client: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true
-    },
-    property: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'PropertyUnit',
-      required: true
-    },
-    appointmentDate: {
-      type: Date,
-      required: true
-    },
-    appointmentTime: {
-      type: String,
-      required: true
-    },
-    status: {
-      type: String,
-      enum: ['scheduled', 'completed', 'cancelled', 'no-show'],
-      default: 'scheduled'
-    },
-    scheduledAt: {
-      type: Date,
-      default: Date.now
-    },
-    notes: String
-  }],
 
   // ================= EXISTING FIELDS =================
   licenseNumber: { type: String, trim: true },
@@ -278,16 +250,14 @@ function generateReferralCode() {
   return `AG${randomStr}${timestamp}`;
 }
 
-// 🔹 Pre-save middleware to generate agentId and referralCode
+// Pre-save middleware to generate agentId and referralCode
 agentSchema.pre('save', async function(next) {
   try {
-    // Generate agentId if not exists
     if (!this.agentId) {
       this.agentId = await generateAgentId();
       console.log('Generated agentId:', this.agentId);
     }
 
-    // Generate referralCode if not exists
     if (!this.referralCode) {
       this.referralCode = generateReferralCode();
       console.log('Generated referralCode:', this.referralCode);
@@ -300,15 +270,15 @@ agentSchema.pre('save', async function(next) {
   }
 });
 
-// 🔹 Indexes
+// Indexes
 agentSchema.index({ agentId: 1 }, { unique: true });
 agentSchema.index({ user: 1 }, { unique: true });
 agentSchema.index({ referralCode: 1 }, { unique: true, sparse: true });
 agentSchema.index({ 'officeAddress.city': 1 });
-agentSchema.index({ 'appointments.appointmentDate': 1 });
 agentSchema.index({ 'onboardedClients.status': 1 });
+agentSchema.index({ 'onboardedClients.appointmentDate': 1 });
 
-// 🔹 Methods
+// Methods
 
 // Increment referral
 agentSchema.methods.addReferral = async function(referredUserId, referredAgentId = null) {
@@ -323,86 +293,6 @@ agentSchema.methods.addReferral = async function(referredUserId, referredAgentId
   });
   
   await this.save();
-  return this;
-};
-
-// Add onboarding entry (appointment)
-agentSchema.methods.addOnboardedClient = async function(data) {
-  const appointmentData = {
-    client: data.client,
-    property: data.property,
-    appointmentDate: data.appointmentDate,
-    appointmentTime: data.appointmentTime,
-    status: data.status || 'scheduled',
-    notes: data.notes
-  };
-  
-  this.appointments.push(appointmentData);
-  
-  this.onboardedClients.push({
-    client: data.client,
-    property: data.property,
-    appointmentDate: data.appointmentDate,
-    appointmentTime: data.appointmentTime,
-    status: data.status || 'scheduled',
-    dealValue: data.dealValue,
-    rewardEarned: data.rewardEarned || 0,
-    notes: data.notes,
-    followUpDate: data.followUpDate
-  });
-  
-  this.clientsCount += 1;
-  this.stats.totalAppointments += 1;
-
-  if (data.rewardEarned) {
-    this.rewards += data.rewardEarned;
-  }
-
-  await this.save();
-  return this;
-};
-
-// Update appointment status
-agentSchema.methods.updateAppointmentStatus = async function(appointmentId, status, feedback = null) {
-  const appointment = this.appointments.id(appointmentId);
-  if (appointment) {
-    appointment.status = status;
-    
-    // Also update in onboardedClients
-    const clientRecord = this.onboardedClients.find(
-      c => c.client.toString() === appointment.client.toString() && 
-           c.property.toString() === appointment.property.toString()
-    );
-    
-    if (clientRecord) {
-      clientRecord.status = status;
-      if (status === 'closed' && clientRecord.dealValue) {
-        this.stats.totalDealValue += clientRecord.dealValue;
-        this.stats.completedVisits += 1;
-        this.stats.conversionRate = (this.stats.completedVisits / this.stats.totalAppointments) * 100;
-      }
-      
-      if (feedback) {
-        clientRecord.feedback = feedback;
-      }
-    }
-    
-    await this.save();
-  }
-  return this;
-};
-
-// Track referral signup
-agentSchema.methods.trackReferralSignup = async function(referredUserId) {
-  const referral = this.referralHistory.find(r => 
-    r.referredUser && r.referredUser.toString() === referredUserId.toString()
-  );
-  
-  if (referral) {
-    referral.status = 'converted';
-    await this.save();
-  }
-  
   return this;
 };
 

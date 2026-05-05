@@ -940,30 +940,9 @@ const applyForAgentStatus = async (req, res) => {
     // Process referral if provided (OPTIONAL)
     let referredByAgent = null;
     let referringAgentData = null;
+    let newAgentProfile = null; // Will be set after agent creation
     
-    if (referralCode && referralCode.trim() !== '') {
-      console.log('Looking for referring agent with code:', referralCode);
-      const referringAgent = await Agent.findOne({ referralCode: referralCode })
-        .populate('user', 'name email');
-      
-      if (referringAgent) {
-        referredByAgent = referringAgent._id;
-        referringAgentData = {
-          name: referringAgent.name,
-          agentId: referringAgent.agentId,
-          referralCode: referringAgent.referralCode
-        };
-        
-        console.log('Referring agent found:', referringAgent.agentId);
-        
-        // Add referral to the referring agent
-        await referringAgent.addReferral(userId, null);
-      } else {
-        console.log('Invalid referral code provided, continuing without referral');
-      }
-    }
-
-    // Create agent profile - let pre-save hook generate IDs
+    // Create agent profile first (so we have the new agent's ID)
     console.log('Creating agent profile...');
     
     const agentData = {
@@ -971,7 +950,7 @@ const applyForAgentStatus = async (req, res) => {
       name: user.name,
       email: user.gmail,
       phoneNumber: user.phoneNumber,
-      referredBy: referredByAgent,
+      referredBy: null, // Will update after if referral exists
       isActive: true,
       company: user.company || '',
       officeAddress: user.officeAddress || {},
@@ -988,6 +967,53 @@ const applyForAgentStatus = async (req, res) => {
       agentId: agent.agentId,
       referralCode: agent.referralCode
     });
+    
+    newAgentProfile = agent;
+    
+    // Process referral AFTER agent is created
+    if (referralCode && referralCode.trim() !== '') {
+      console.log('Looking for referring agent with code:', referralCode);
+      const referringAgent = await Agent.findOne({ referralCode: referralCode })
+        .populate('user', 'name email');
+      
+      if (referringAgent) {
+        // Don't allow self-referral
+        if (referringAgent._id.toString() === agent._id.toString()) {
+          console.log('Self-referral not allowed');
+        } else {
+          referredByAgent = referringAgent._id;
+          referringAgentData = {
+            name: referringAgent.name,
+            agentId: referringAgent.agentId,
+            referralCode: referringAgent.referralCode
+          };
+          
+          console.log('Referring agent found:', referringAgent.agentId);
+          
+          // CRITICAL FIX: Add as referredAgent (not referredUser)
+          // This is for agent-to-agent referral
+          referringAgent.referralCount = (referringAgent.referralCount || 0) + 1;
+          referringAgent.rewards = (referringAgent.rewards || 0) + 100;
+          
+          referringAgent.referralHistory.push({
+            referredAgent: agent._id,  // This is an AGENT being referred
+            referredUser: null,        // No user reference for agent referrals
+            referredAt: new Date(),
+            status: 'converted',       // Agent referrals are automatically converted
+            rewardAmount: 100
+          });
+          
+          await referringAgent.save();
+          console.log(`Agent ${referringAgent.agentId} referred new agent ${agent.agentId}`);
+          
+          // Update the new agent's referredBy field
+          agent.referredBy = referringAgent._id;
+          await agent.save();
+        }
+      } else {
+        console.log('Invalid referral code provided, continuing without referral');
+      }
+    }
 
     // Update user with agent profile reference
     user.agentProfile = agent._id;
