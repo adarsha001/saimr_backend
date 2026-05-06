@@ -63,7 +63,7 @@ const createBlog = async (req, res) => {
     // Create blog post - NOW INCLUDING SLUG
     const blog = await Blog.create({
       title: req.body.title,
-      slug: slug, // 👈 ADD THIS LINE
+      // slug: slug, 
       question: req.body.question,
       answer: req.body.answer,
       image: imageData,
