@@ -44,11 +44,7 @@ const createBlog = async (req, res) => {
       }
     }
 
-    // Generate slug from title - FIX HERE
-    const slug = req.body.title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '');
+    // REMOVED slug generation code entirely
 
     // Get createdBy
     const createdBy = req.user?._id || req.body.createdBy;
@@ -60,10 +56,10 @@ const createBlog = async (req, res) => {
       });
     }
 
-    // Create blog post - NOW INCLUDING SLUG
+    // Create blog post - WITHOUT slug
     const blog = await Blog.create({
       title: req.body.title,
-      // slug: slug, 
+      // NO slug field here
       question: req.body.question,
       answer: req.body.answer,
       image: imageData,

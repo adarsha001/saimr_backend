@@ -1,4 +1,3 @@
-
 const mongoose = require('mongoose');
 
 const blogSchema = new mongoose.Schema({
@@ -8,13 +7,8 @@ const blogSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
-  slug: {
-    type: String,
-    required: true,
-    // unique: true,
-    lowercase: true
-  },
   
+  // REMOVED slug field completely
 
   question: {
     type: String,
@@ -59,16 +53,6 @@ const blogSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Create slug from title before saving
-blogSchema.pre('save', function(next) {
-  if (this.isModified('title')) {
-    this.slug = this.title
-      .toLowerCase()
-      .replace(/[^a-zA-Z0-9]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
-  }
-  next();
-});
+// REMOVED the pre-save hook (no longer needed)
 
 module.exports = mongoose.model('Blog', blogSchema);
