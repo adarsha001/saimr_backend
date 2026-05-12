@@ -345,7 +345,11 @@ const propertyUnitSchema = new mongoose.Schema(
     favoriteCount: { type: Number, default: 0 },
 
     // Display
-    displayOrder: { type: Number, default: 0 },
+displayOrder: {
+  type: Number,
+  default: 0,  // Not null, with default value
+  index: true   // Add index for better query performance
+}
   },
   { 
     timestamps: true,

@@ -16,10 +16,10 @@ const getAllPropertyUnits = async (req, res) => {
       availability,
       listingType,
       createdBy,
-      unitType, // Added for filtering by unit type
-      furnishing, // Added for filtering by furnishing status
-      possessionStatus, // Added for filtering by possession status
-      minPrice, // Added for price range filtering
+      unitType,
+      furnishing,
+      possessionStatus,
+      minPrice,
       maxPrice,
       page = 1,
       limit = 50,
@@ -31,27 +31,28 @@ const getAllPropertyUnits = async (req, res) => {
     const filter = {};
 
     // Search filter
-if (search && search.trim() !== '') {
-  const searchRegex = new RegExp(search.trim(), 'i');
-  filter.$or = [
-    { title: searchRegex },
-    { description: searchRegex },
-    { address: searchRegex },
-    { city: searchRegex },
-    { locality: searchRegex },
-    { state: searchRegex },
-    { pincode: searchRegex },
-    { 'buildingDetails.name': searchRegex },
-    { 'buildingDetails.address': searchRegex },
-    { 'buildingDetails.locality': searchRegex },
-    { slug: searchRegex },
-    { complexName: searchRegex },
-    { buildingName: searchRegex },
-    { landmark: searchRegex },
-    { nearbyLandmarks: searchRegex }
-  ];
-}
-    // Apply filters
+    if (search && search.trim() !== '') {
+      const searchRegex = new RegExp(search.trim(), 'i');
+      filter.$or = [
+        { title: searchRegex },
+        { description: searchRegex },
+        { address: searchRegex },
+        { city: searchRegex },
+        { locality: searchRegex },
+        { state: searchRegex },
+        { pincode: searchRegex },
+        { 'buildingDetails.name': searchRegex },
+        { 'buildingDetails.address': searchRegex },
+        { 'buildingDetails.locality': searchRegex },
+        { slug: searchRegex },
+        { complexName: searchRegex },
+        { buildingName: searchRegex },
+        { landmark: searchRegex },
+        { nearbyLandmarks: searchRegex }
+      ];
+    }
+    
+    // Apply filters (same as before)
     if (city && city.trim() !== '') {
       filter.city = new RegExp(city.trim(), 'i');
     }
@@ -84,22 +85,18 @@ if (search && search.trim() !== '') {
       filter.createdBy = createdBy.trim();
     }
 
-    // Filter by unit type (nested in unitTypes array)
     if (unitType && unitType.trim() !== '') {
       filter['unitTypes.type'] = unitType.trim();
     }
 
-    // Filter by furnishing status
     if (furnishing && furnishing.trim() !== '') {
       filter['commonSpecifications.furnishing'] = furnishing.trim();
     }
 
-    // Filter by possession status
     if (possessionStatus && possessionStatus.trim() !== '') {
       filter['commonSpecifications.possessionStatus'] = possessionStatus.trim();
     }
 
-    // Price range filter (using unitTypes price)
     if (minPrice || maxPrice) {
       filter['unitTypes.price.amount'] = {};
       if (minPrice) filter['unitTypes.price.amount'].$gte = parseFloat(minPrice);
@@ -111,7 +108,7 @@ if (search && search.trim() !== '') {
     const limitNum = Math.min(Math.max(1, parseInt(limit) || 50), 200);
     const skip = (pageNum - 1) * limitNum;
 
-    // Build sort object
+    // Build sort object - CRITICAL FIX: Always include _id as secondary sort for stability
     let sort = {};
     
     const allowedSortFields = {
@@ -133,16 +130,24 @@ if (search && search.trim() !== '') {
     const sortField = allowedSortFields[sortBy] || 'createdAt';
     const sortDirection = sortOrder === 'asc' ? 1 : -1;
     
+    // Primary sort field
     sort[sortField] = sortDirection;
-
-    // Execute query
-    const query = PropertyUnit.find(filter);
     
-    if (Object.keys(sort).length > 0) {
-      query.sort(sort);
+    // CRITICAL: Always add secondary sort by _id to ensure deterministic ordering
+    // This prevents duplicate records across pagination pages
+    if (sortField !== '_id') {
+      sort['_id'] = 1; // Always ascending for consistency
     }
-    
-    const propertyUnits = await query
+
+    // For displayOrder sorting, add extra safety to handle null/undefined values
+    if (sortField === 'displayOrder') {
+      // Ensure documents with displayOrder come first, then nulls at the end
+      // Or configure default value for displayOrder in your schema
+    }
+
+    // Execute query with additional lean for performance
+    const propertyUnits = await PropertyUnit.find(filter)
+      .sort(sort)
       .skip(skip)
       .limit(limitNum)
       .populate('createdBy', 'name email phoneNumber avatar userType')
