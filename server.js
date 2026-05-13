@@ -131,7 +131,8 @@ app.use('/sitemap.xml', express.static('public/sitemap.xml'));
 /* =========================
    ✅ ROUTES
 ========================= */
-
+app.use('/api/admin/batches', propertyBatchRoutes);
+app.use('/api/batches', require('./routes/publicBatchRoutes'));
 app.use('/api/admin', require('./routes/adminRoutescleartitle'));
 app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/auth', require('./routes/authRoutes'));
@@ -139,11 +140,10 @@ app.use('/api/bookings', require('./routes/bookingRoutes'));
 app.use('/api/card-ads', require('./routes/cardAdRoutes'));
 
 app.use('/api/referrals',require('./routes/referralRoutes') ); 
-app.use('/api/batches', require('./routes/publicBatchRoutes'));
+
 app.use('/api/myproperties',require('./routes/Mypropertyroute'))
 app.use('/api/users', require('./routes/userRoutes'));
 app.use("/api/properties", propertyRoutes);
-app.use('/api/admin/batches', propertyBatchRoutes);
 app.use('/api/carousel', carouselRoutes);
 app.use('/api/auth/truecaller', truecallerRoutes);
 app.use('/api/blogs', blogRoutes);

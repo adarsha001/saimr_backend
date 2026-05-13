@@ -10,7 +10,7 @@ const batchUpload = upload;
 // ============ PUBLIC ROUTES (No authentication required) ============
 // Anyone can view batches (READ operations)
 router.route('/')
-  .get(propertyBatchController.getAllBatches);
+  .get(propertyBatchController.getAllBatches);  
 
 router.route('/:id')
   .get(propertyBatchController.getBatch);
